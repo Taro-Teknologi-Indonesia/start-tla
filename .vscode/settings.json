@@ -1,0 +1,6 @@
+{
+  "files.associations": { "*.tla": "tlaplus", "*.cfg": "tlaplus_cfg" },
+  "files.trimTrailingWhitespace": true,
+  "files.insertFinalNewline": true,
+  "editor.rulers": [80]
+}

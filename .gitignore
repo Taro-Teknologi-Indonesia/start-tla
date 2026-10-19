@@ -1,0 +1,8 @@
+tools/
+states/
+specs/*.old
+specs/*.pdf
+specs/*.dvi
+specs/*.log
+specs/*_TTrace_*
+.DS_Store
