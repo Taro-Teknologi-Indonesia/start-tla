@@ -15,7 +15,7 @@ CFG  := $(DIR)/$(SPEC).cfg
 TLA_CP := $(JAVA) -cp $(JAR)
 
 # TLA-ID: the same specs written with Indonesian keywords (specs/Name.tlaid + specs/Name.cfgid)
-TLAID     := TLA_JAR=$(abspath $(JAR)) python3 tlaid/tlaid.py
+TLAID     := TLA_JAR=$(abspath $(JAR)) JAVA_OPTS="$(JAVA_OPTS)" python3 tlaid/tlaid.py
 TLAID_SRC := $(DIR)/$(SPEC).tlaid
 
 .DEFAULT_GOAL := help

@@ -411,7 +411,8 @@ def glued(ta, na, tb, nb):
     left_word, right_word = re.search(r"\w$", na), re.match(r"\w", nb)
     if left_word and right_word: return 1
     is_kw = lambda x: bool(x) and (x.split()[0] in SPEC_KW or x.startswith("ADIL_"))
-    if left_word and na != ta and is_kw(na): return 1   # PADA.lines -> PADA .lines
+    if left_word and na != ta and is_kw(na) and not nb.startswith((",", ")", "]", "}", ">>", ";")):
+        return 1                                        # PADA.lines -> PADA .lines, but {BENAR, SALAH}
     if right_word and nb != tb and is_kw(nb) and not na.endswith(("(", "[", "{", "<<")):
         return 1                                        # x):>1 -> x) BERNILAI 1, but (SUBSET S -> (HIMPUNAN_KUASA S
     if na.startswith("ADIL_") and nb.startswith("("): return 1  # ADIL_LEMAH TERHADAP vars (Next)
@@ -710,6 +711,27 @@ MSG += [
     (r"^Error: TLC threw an unexpected exception\.", "Kesalahan: TLC mengalami pengecualian yang tidak terduga."),
     (r"^Temporal property (\S+) was violated\.", r"Properti temporal \1 dilanggar."),
     (r"^Error: Temporal property (\S+) was violated\.", r"Kesalahan: Properti temporal \1 dilanggar."),
+    (r"^: In evaluation, the identifier (\S+) is either undefined or not an operator\.",
+     r": Saat evaluasi, pengenal \1 belum terdefinisi atau bukan operator."),
+    (r"^: The current version of TLC does not support action composition\.\s+An incomplete implementation can be enabled via the (\S+) java property\.",
+     r": Versi TLC ini belum mendukung komposisi aksi. Implementasi yang belum lengkap bisa diaktifkan lewat properti java \1."),
+    (r"^Multiple declarations or definitions for symbol (\S+)\.\s*$", r"Deklarasi atau definisi ganda untuk simbol \1."),
+    (r"^This duplicates the one at (.*)\.", r"Ini menduplikasi yang ada di \1."),
+    (r"^Operator (\S+) already defined or declared\.", r"Operator \1 sudah didefinisikan atau dideklarasikan."),
+    (r"^Multiply-defined symbol '(\S+)': this definition or declaration conflicts\s*$",
+     r"Simbol '\1' didefinisikan ganda: definisi atau deklarasi ini bentrok"),
+    (r"^with the one at (.*)\.", r"dengan yang ada di \1."),
+    (r"^The operator (\S+) requires (\d+) arguments?\.", r"Operator \1 membutuhkan \2 argumen."),
+    (r"^File name '(\S+)' does not match the name '(\S+)' of the top level module it contains\.",
+     r"Nama berkas '\1' tidak cocok dengan nama '\2' milik modul utama di dalamnya."),
+    (r"^Unknown location$", "Lokasi tidak diketahui"),
+    (r"^\*\*\* Warnings: (\d+)", r"*** Jumlah peringatan: \1"),
+    (r"^Error: The constant parameter (\S+) is not assigned a value by the configuration file\.",
+     r"Kesalahan: Parameter konstanta \1 tidak diberi nilai oleh file konfigurasi."),
+    (r"^Error: The property (\S+) specified in the configuration file$", r"Kesalahan: Properti \1 yang disebut di file konfigurasi"),
+    (r"^is not defined in the specification\.", "tidak didefinisikan di spesifikasi."),
+    (r"^Error: TLC found an error in the configuration file at line (\d+)$", r"Kesalahan: TLC menemukan kesalahan di file konfigurasi pada baris \1"),
+    (r"^It was expecting (.*), but did not find it\.", r"TLC mengharapkan \1, tetapi tidak menemukannya."),
 ]
 MSG.sort(key=lambda m: m[0] == r"^Error: (.*)")            # the catch-all goes last
 MSG = [(re.compile(a), b) for a, b in MSG]
@@ -726,7 +748,7 @@ NOISE = ("Warning: Please run the Java VM", "(Use the -nowarning option", "Picke
 POS1 = re.compile(r"line (\d+), col (\d+) to line (\d+), col (\d+) of module (\w+)")
 POS2 = re.compile(r"[Ll]ine (\d+), column (\d+) to line (\d+), column (\d+) in (\w+)")
 POS3 = re.compile(r"at line (\d+), column (\d+)")
-VALUE_WORDS = {"TRUE": "BENAR", "FALSE": "SALAH"}
+VALUE_WORDS = {"TRUE": "BENAR", "FALSE": "SALAH", "Nat": "Asli", "Int": "Bulat"}   # the sets print by name
 
 def src_col(shifts, mod, line, col, end=False):
     """Map a 1-based TLC column on `line` back to the .tlaid file."""
@@ -763,7 +785,7 @@ def keyword_at(srcs, mod, line, col):
 def translate_values(s):
     pieces = re.split(r'("(?:[^"\\]|\\.)*")', s)
     for k in range(0, len(pieces), 2):
-        pieces[k] = re.sub(r"\b(TRUE|FALSE)\b", lambda m: VALUE_WORDS[m.group(1)], pieces[k])
+        pieces[k] = re.sub(r"\b(TRUE|FALSE|Nat|Int)\b", lambda m: VALUE_WORDS[m.group(1)], pieces[k])
         pieces[k] = pieces[k].replace("|->", "BERNILAI").replace(":>", "BERNILAI").replace("@@", "SERTA")
         pieces[k] = re.sub(r"^(\s*)/\\ ", r"\1DAN ", pieces[k])
         pieces[k] = re.sub(r"^(\s*)\\/ ", r"\1ATAU ", pieces[k])
@@ -776,6 +798,8 @@ def translate_output(text, shifts, srcs):
         if not stripped:
             in_state = False
         header = re.match(r"^(State \d+:|Back to state)", line)
+        if in_state and not header and not re.match(r"^(\s|/\\ |\\/ |[A-Za-z_]\w* = )", line):
+            in_state = False                            # the trace is over: "Finished ...", "12 states generated ..."
         if (in_state and not header) or stripped.startswith("/\\ ") or stripped.startswith("\\/ "):
             out.append(translate_values(line)); continue
         if re.match(r"^(State \d+:|Back to state|Error: Invariant \S+ is violated by the initial state)", line):
@@ -876,6 +900,19 @@ REPL_PHRASES = [
     ("Attempted to apply function:", "Mencoba menerapkan fungsi:"),
     ("which is not in the domain of the function.", "yang tidak ada dalam domain fungsi."),
     ("to argument", "ke argumen"),
+    ("Attempted to apply Head to the empty sequence.", "Mencoba menerapkan Kepala pada barisan kosong."),
+    ("Attempted to apply Tail to the empty sequence.", "Mencoba menerapkan Ekor pada barisan kosong."),
+    ("TLC encountered the non-enumerable quantifier bound", "TLC menemukan batas kuantor yang tidak dapat dienumerasi:"),
+    (" In TLA+, Seq(S) represents the set of all finite sequences whose elements come from the set S.",
+     ". Di TLA+, Seq(S) (Barisan(S) di TLA-ID) adalah himpunan semua barisan berhingga yang elemennya berasal dari S."),
+    (" Even when S is a finite set, the number of possible sequences in Seq(S) is unbounded because sequences can have any finite length (e.g., length 0, 1, 2, and so on).",
+     " Walaupun S berhingga, banyaknya barisan di dalamnya tidak terbatas, karena panjang barisan boleh berapa saja (0, 1, 2, dan seterusnya)."),
+    (" As a result, TLC cannot evaluate expressions that universally (\\A) or existentially (\\E) quantify over",
+     " Karena itu TLC tidak bisa mengevaluasi SEMUA atau ADA yang berjalan atas"),
+    (", because this would require checking an infinite number of cases.", ", karena itu berarti memeriksa kasus yang jumlahnya tak berhingga."),
+    (" Note that for a finite set of sequences s, TLC handles s \\subseteq Seq(S).",
+     " Untuk himpunan barisan s yang berhingga, TLC bisa menangani s BAGIAN DARI Barisan(S)."),
+    (" See https://explain.tlapl.us/seq-unenumerable for additional details.", " Lihat https://explain.tlapl.us/seq-unenumerable untuk detailnya."),
     ("Attempted to check equality of integer", "Mencoba memeriksa kesamaan bilangan bulat"),
     ("with non-integer:", "dengan nilai yang bukan bilangan bulat:"),
 ]
@@ -1010,11 +1047,12 @@ def main(argv):
         except TlaidError as e:
             print("Kesalahan TLA-ID:", e); return 1
         srcs = {mod: srcs[mod], **{k: v for k, v in srcs.items() if k != mod}}
+        jopts = os.environ.get("JAVA_OPTS", "").split()       # e.g. JAVA_OPTS=-Dtlc2.tool.impl.Tool.cdot=true
         if cmd == "urai":
-            args = ["java", "-cp", JAR, "tla2sany.SANY", mod + ".tla"]
+            args = ["java", *jopts, "-cp", JAR, "tla2sany.SANY", mod + ".tla"]
         else:
             extra = argv[2:] if "-workers" in argv[2:] else ["-workers", "1", *argv[2:]]
-            args = ["java", "-XX:+UseParallelGC", "-cp", JAR, "tlc2.TLC", "-metadir", "states",
+            args = ["java", "-XX:+UseParallelGC", *jopts, "-cp", JAR, "tlc2.TLC", "-metadir", "states",
                     "-config", mod + ".cfg", *extra, mod + ".tla"]
         r = subprocess.run(args, cwd=outdir, capture_output=True, text=True)
         print(translate_output(r.stdout + r.stderr, shifts, srcs))

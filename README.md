@@ -76,6 +76,8 @@ make impor SPEC=Counter  # convert specs/Counter.tla/.cfg to TLA-ID
 | `make baru SPEC=X` | Scaffold a new TLA-ID module and config |
 | `make impor SPEC=X` | Write `specs/X.tlaid` and `specs/X.cfgid` from an existing English spec |
 
+JVM options reach TLC through `JAVA_OPTS`, e.g. `make cek SPEC=Dot JAVA_OPTS=-Dtlc2.tool.impl.Tool.cdot=true`.
+
 `specs/Counter.tlaid` is the starter spec in TLA-ID. The generated `.tla` files in `specs/.tlaid-out/` are plain TLA+, so anyone can read them without TLA-ID.
 
 ## Using VS Code
