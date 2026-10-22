@@ -14,8 +14,12 @@ CFG  := $(DIR)/$(SPEC).cfg
 
 TLA_CP := $(JAVA) -cp $(JAR)
 
+# TLA-ID: the same specs written with Indonesian keywords (specs/Name.tlaid + specs/Name.cfgid)
+TLAID     := TLA_JAR=$(abspath $(JAR)) python3 tlaid/tlaid.py
+TLAID_SRC := $(DIR)/$(SPEC).tlaid
+
 .DEFAULT_GOAL := help
-.PHONY: help setup parse check tlc pcal simulate repl new clean distclean
+.PHONY: help setup parse check tlc pcal simulate repl new clean distclean cek urai repl-id baru impor
 
 help: ## Show this help
 	@awk 'BEGIN{FS=":.*## "} /^[a-zA-Z_-]+:.*## /{printf "  \033[36m%-10s\033[0m %s\n",$$1,$$2}' $(MAKEFILE_LIST)
@@ -52,8 +56,25 @@ new: ## Scaffold a new spec: make new SPEC=Name
 	@printf 'SPECIFICATION Spec\nINVARIANT TypeOK\n' > $(CFG)
 	@echo "Created $(TLA) and $(CFG)"
 
+cek: $(JAR) ## TLA-ID: model-check an Indonesian spec: make cek SPEC=Name
+	$(TLAID) cek $(TLAID_SRC) -workers $(WORKERS)
+
+urai: $(JAR) ## TLA-ID: parse an Indonesian spec with SANY: make urai SPEC=Name
+	$(TLAID) urai $(TLAID_SRC)
+
+repl-id: $(JAR) ## TLA-ID: REPL that reads and answers in TLA-ID
+	@$(TLAID) repl
+
+baru: ## TLA-ID: start a new Indonesian spec: make baru SPEC=Name
+	@$(TLAID) baru $(DIR)/$(SPEC)
+
+impor: ## TLA-ID: convert specs/Name.tla and .cfg to .tlaid and .cfgid
+	@test ! -e $(TLAID_SRC) || { echo "$(TLAID_SRC) already exists"; exit 1; }
+	$(TLAID) impor $(TLA) > $(TLAID_SRC)
+	@test ! -e $(CFG) || $(TLAID) impor $(CFG) > $(DIR)/$(SPEC).cfgid
+
 clean: ## Remove TLC state dirs and generated files
-	rm -rf $(STATES_DIR) $(DIR)/*.old $(DIR)/*.pdf $(DIR)/*.dvi $(DIR)/*.log $(DIR)/*_TTrace_*
+	rm -rf $(STATES_DIR) $(DIR)/*.old $(DIR)/*.pdf $(DIR)/*.dvi $(DIR)/*.log $(DIR)/*_TTrace_* $(DIR)/.tlaid-out
 
 distclean: clean ## Also remove the downloaded tla2tools.jar
 	rm -rf tools

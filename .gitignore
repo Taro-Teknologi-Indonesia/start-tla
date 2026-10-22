@@ -6,3 +6,5 @@ specs/*.dvi
 specs/*.log
 specs/*_TTrace_*
 .DS_Store
+specs/.tlaid-out/
+__pycache__/
