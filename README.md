@@ -7,6 +7,7 @@ A ready-to-fork starter for writing and model-checking [TLA+](https://lamport.az
 - **Java 11+** (`java -version`). On macOS: `brew install --cask temurin`
 - **VS Code** with the [TLA+ extension](https://marketplace.visualstudio.com/items?itemName=tlaplus.vscode-ide). VS Code will offer to install it from `.vscode/extensions.json`, or run `code --install-extension tlaplus.vscode-ide`.
 - `make` and `curl` (preinstalled on macOS/Linux)
+- **Python 3.8+**, only for TLA-ID (`python3 --version`)
 
 ## Quick start
 
@@ -52,6 +53,30 @@ make check SPEC=MySpec   # run TLC
 | `make clean` / `make distclean` | Remove TLC output / also remove the jar |
 
 Variables: `SPEC` (default `Counter`), `WORKERS` (default `auto`), `TLA_JAR_URL` (to pin a specific tla2tools release, e.g. `make setup TLA_JAR_URL=https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/tla2tools.jar`).
+
+## TLA-ID: specs with Indonesian keywords
+
+TLA-ID lets you write the same specs with Indonesian keywords (`DAN`, `ATAU`, `SEMUA x DALAM S BERLAKU ...`, `JIKA ... MAKA ... SEBALIKNYA`, `vars TETAP`). `tlaid/tlaid.py` swaps each keyword for its TLA+ token without moving any line, runs the same SANY and TLC, and prints TLC's report in Indonesian with line numbers pointing at your file.
+
+A TLA-ID spec `Foo` is `specs/Foo.tlaid` plus `specs/Foo.cfgid`:
+
+```sh
+make baru SPEC=Foo       # creates specs/Foo.tlaid + Foo.cfgid
+make urai SPEC=Foo       # syntax check (SANY)
+make cek SPEC=Foo        # run TLC, report in Indonesian
+make repl-id             # REPL that reads and answers in TLA-ID
+make impor SPEC=Counter  # convert specs/Counter.tla/.cfg to TLA-ID
+```
+
+| Target | What it does |
+| --- | --- |
+| `make cek SPEC=X` | Transpile `specs/*.tlaid` into `specs/.tlaid-out/`, model-check `X` with TLC, translate the report |
+| `make urai SPEC=X` | The same, but only parse with SANY |
+| `make repl-id` | TLA-ID REPL: `SEMUA x DALAM 1..3 BERLAKU x > 0` answers `BENAR` |
+| `make baru SPEC=X` | Scaffold a new TLA-ID module and config |
+| `make impor SPEC=X` | Write `specs/X.tlaid` and `specs/X.cfgid` from an existing English spec |
+
+`specs/Counter.tlaid` is the starter spec in TLA-ID. The generated `.tla` files in `specs/.tlaid-out/` are plain TLA+, so anyone can read them without TLA-ID.
 
 ## Using VS Code
 
