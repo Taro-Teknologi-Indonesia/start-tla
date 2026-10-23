@@ -1,6 +1,6 @@
 ---------------------------- MODUL Counter ----------------------------
 (* A bounded counter: a minimal spec to verify your setup works. *)
-MENGGUNAKAN BilanganAsli
+MENGGUNAKAN HimpunanBilanganAsli
 
 KONSTANTA Max
 VARIABEL count
