@@ -23,6 +23,7 @@ Expected result: `Model checking completed. No error has been found.`
 
 ```
 specs/          your .tla modules and their .cfg model configs
+examples/       code that implements a checked spec (see "Example" below)
 .vscode/        editor settings + recommended extension
 tools/          tla2tools.jar (downloaded by `make setup`, git-ignored)
 states/         TLC working state (git-ignored)
@@ -52,7 +53,7 @@ make check SPEC=MySpec   # run TLC
 | `make new SPEC=X` | Scaffold a new module and config |
 | `make clean` / `make distclean` | Remove TLC output / also remove the jar |
 
-Variables: `SPEC` (default `Counter`), `WORKERS` (default `auto`), `TLA_JAR_URL` (to pin a specific tla2tools release, e.g. `make setup TLA_JAR_URL=https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/tla2tools.jar`).
+Variables: `SPEC` (default `Counter`), `WORKERS` (default `auto`), `TLC_FLAGS` (extra TLC options, e.g. `TLC_FLAGS="-lncheck final"`), `TLA_JAR_URL` (to pin a specific tla2tools release, e.g. `make setup TLA_JAR_URL=https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/tla2tools.jar`).
 
 ## TLA-ID: specs with Indonesian keywords
 
@@ -77,6 +78,18 @@ make impor SPEC=Counter  # convert specs/Counter.tla/.cfg to TLA-ID
 | `make impor SPEC=X` | Write `specs/X.tlaid` and `specs/X.cfgid` from an existing English spec |
 
 `specs/Counter.tlaid` is the starter spec in TLA-ID. The generated `.tla` files in `specs/.tlaid-out/` are plain TLA+, so anyone can read them without TLA-ID.
+
+## Example: microservices from spec to code
+
+`specs/ShopServices.tlaid` models an online shop as six services (ordering, inventory, payment, a saga, a projector and a notifier) that share nothing but queues: DDD without event sourcing, with domain events, integration events, event handlers, a projector and a saga. Queues deliver at least once and in any order, and a worker can crash after it commits. The constant `Fixes` switches on the six fixes TLC leads to, one at a time; with `Fixes = {}` (as committed) TLC finds the first bug in a second:
+
+```sh
+make cek SPEC=ShopServices WORKERS=1 TLC_FLAGS="-lncheck final -fp 112"
+```
+
+With all six fixes the check passes in about seven minutes. `WORKERS=1`, `-lncheck final` and a fixed fingerprint function (`-fp 112`) make TLC report the same counterexamples, in the same order, on every run. Without `-fp`, TLC picks the fingerprint function at random, and the liveness counterexamples it finds can differ from run to run.
+
+`examples/shop-services/` is the same design in TypeScript on Cloudflare Workers (D1, Queues, a Durable Object for the saga), with tests that replay each counterexample TLC found. See its README to run the tests or the Worker locally. Chapter 21 (Bab 21) of the TLA-ID book walks through both.
 
 ## Using VS Code
 

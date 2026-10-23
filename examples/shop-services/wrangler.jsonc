@@ -1,0 +1,45 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "shop-services",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "vars": {
+    "AUTO_RELAY": "on",
+    "PAYMENT_TIMEOUT_SECONDS": "30",
+    "PSP_DECLINE_ABOVE": "5000000"
+  },
+  // One database per service. Replace each database_id with the id from `wrangler d1 create`.
+  "d1_databases": [
+    { "binding": "ORDERING_DB", "database_name": "shop-ordering", "database_id": "00000000-0000-0000-0000-000000000001", "migrations_dir": "migrations/ordering" },
+    { "binding": "INVENTORY_DB", "database_name": "shop-inventory", "database_id": "00000000-0000-0000-0000-000000000002", "migrations_dir": "migrations/inventory" },
+    { "binding": "PAYMENT_DB", "database_name": "shop-payment", "database_id": "00000000-0000-0000-0000-000000000003", "migrations_dir": "migrations/payment" },
+    { "binding": "PROJECTOR_DB", "database_name": "shop-projector", "database_id": "00000000-0000-0000-0000-000000000004", "migrations_dir": "migrations/projector" },
+    { "binding": "NOTIFIER_DB", "database_name": "shop-notifier", "database_id": "00000000-0000-0000-0000-000000000005", "migrations_dir": "migrations/notifier" }
+  ],
+  // One queue per receiver; this Worker consumes all of them. A message that keeps
+  // failing goes to the dead-letter queue instead of being dropped after max_retries.
+  "queues": {
+    "producers": [
+      { "binding": "ORDERING_QUEUE", "queue": "shop-ordering" },
+      { "binding": "INVENTORY_QUEUE", "queue": "shop-inventory" },
+      { "binding": "PAYMENT_QUEUE", "queue": "shop-payment" },
+      { "binding": "SAGA_QUEUE", "queue": "shop-saga" },
+      { "binding": "PROJECTOR_QUEUE", "queue": "shop-projector" },
+      { "binding": "NOTIFIER_QUEUE", "queue": "shop-notifier" }
+    ],
+    "consumers": [
+      { "queue": "shop-ordering", "max_batch_timeout": 1, "max_retries": 10, "dead_letter_queue": "shop-dead-letters" },
+      { "queue": "shop-inventory", "max_batch_timeout": 1, "max_retries": 10, "dead_letter_queue": "shop-dead-letters" },
+      { "queue": "shop-payment", "max_batch_timeout": 1, "max_retries": 10, "dead_letter_queue": "shop-dead-letters" },
+      { "queue": "shop-saga", "max_batch_timeout": 1, "max_retries": 10, "dead_letter_queue": "shop-dead-letters" },
+      { "queue": "shop-projector", "max_batch_timeout": 1, "max_retries": 10, "dead_letter_queue": "shop-dead-letters" },
+      { "queue": "shop-notifier", "max_batch_timeout": 1, "max_retries": 10, "dead_letter_queue": "shop-dead-letters" }
+    ]
+  },
+  "durable_objects": {
+    "bindings": [{ "name": "ORDER_SAGA", "class_name": "OrderSaga" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["OrderSaga"] }],
+  "triggers": { "crons": ["* * * * *"] },
+  "observability": { "enabled": true }
+}

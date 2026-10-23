@@ -1,0 +1,363 @@
+---- MODUL ShopServices ----
+(******************************************************************)
+(* An online shop as microservices: DDD without event sourcing.   *)
+(* Each service keeps its aggregates' current state in its own    *)
+(* database and talks to the others only through queues.          *)
+(*   ordering   Order aggregate: placed, confirmed or cancelled   *)
+(*   inventory  Stock aggregate: one product, used by every order *)
+(*   payment    Payment aggregate; asks a payment provider (PSP)  *)
+(*   saga       process manager: reserve, charge, then confirm,   *)
+(*              or compensate                                     *)
+(*   projector  read model for the "my orders" page               *)
+(*   notifier   event handler: emails the customer a confirmation *)
+(* Queues deliver at least once, in any order. A worker can crash *)
+(* after its transaction commits but before it acks the message.  *)
+(* Fixes switches on the fixes TLC leads us to, one at a time.    *)
+(******************************************************************)
+MENGGUNAKAN HimpunanBilanganAsli, HimpunanTerbatas
+
+KONSTANTA Orders,      \* order ids, e.g. {o1, o2}
+          Stock,       \* units of the one product on sale
+          MaxCrashes,  \* worker crashes allowed in one behavior
+          Fixes        \* which fixes are switched on
+
+AllFixes == {"inbox", "version", "outbox", "skip_stale", "email_key", "refund_late"}
+ASUMSI Fixes BAGIAN DARI AllFixes DAN Stock DALAM BilanganAsli
+
+\* ---- the integration contract: who receives each message type ----
+Receivers(t) ==
+    KONDISI t = "OrderPlaced"                         HASILNYA {"saga", "projector"}
+       ATAU t = "OrderConfirmed"                      HASILNYA {"projector", "notifier"}
+       ATAU t = "OrderCancelled"                      HASILNYA {"projector"}
+       ATAU t DALAM {"StockReserved", "StockRejected",
+                     "PaymentCaptured", "PaymentDeclined"}
+                                                      HASILNYA {"saga"}
+       ATAU t DALAM {"ReserveStock", "ReleaseStock"}  HASILNYA {"inventory"}
+       ATAU t DALAM {"ChargePayment", "RefundPayment"} HASILNYA {"payment"}
+       ATAU t DALAM {"ConfirmOrder", "CancelOrder"}   HASILNYA {"ordering"}
+       ATAU LAINNYA                                   HASILNYA {}   \* stays in its service
+
+Types == {"OrderPlaced", "OrderConfirmed", "OrderCancelled", "StockReserved",
+          "StockRejected", "PaymentCaptured", "PaymentDeclined", "ReserveStock",
+          "ReleaseStock", "ChargePayment", "RefundPayment", "ConfirmOrder", "CancelOrder"}
+
+\* One message per receiver. A message's content is also its id, so
+\* the same fact sent twice is the same message.
+Emit(t, o, v) ==
+    {[type BERNILAI t, order BERNILAI o, v BERNILAI v, to BERNILAI r] UNTUK r DALAM Receivers(t)}
+
+\* The messages for a set ts of domain events or commands.
+Out(ts, o, v) == GABUNGAN_SEMUA {Emit(t, o, v) UNTUK t DALAM ts}
+
+\* Only the Order aggregate's events carry a version: its row version.
+Version(t) ==
+    KONDISI t = "OrderPlaced"                            HASILNYA 1
+       ATAU t DALAM {"OrderConfirmed", "OrderCancelled"} HASILNYA 2
+       ATAU LAINNYA                                      HASILNYA 0
+
+Messages == GABUNGAN_SEMUA {Emit(t, o, Version(t)) UNTUK t DALAM Types, o DALAM Orders}
+
+\* ---- ordering: the Order aggregate ----
+NoRow == [status BERNILAI "none", v BERNILAI 0]
+
+\* A command gives the new row and the domain events it raises.
+Raise(row, s, e) == [row BERNILAI [status BERNILAI s, v BERNILAI row.v + 1], events BERNILAI {e}]
+Keep(row)        == [row BERNILAI row, events BERNILAI {}]
+
+OrderHandle(row, cmd) ==
+    KONDISI cmd = "PlaceOrder" DAN row.status = "none"
+                HASILNYA Raise(row, "placed", "OrderPlaced")
+       ATAU cmd = "ConfirmOrder" DAN row.status = "placed"
+                HASILNYA Raise(row, "confirmed", "OrderConfirmed")
+       ATAU cmd = "CancelOrder" DAN row.status = "placed"
+                HASILNYA Raise(row, "cancelled", "OrderCancelled")
+       ATAU LAINNYA HASILNYA Keep(row)
+
+\* ---- inventory: the Stock aggregate, one row for the product ----
+Reserve(st) ==
+    JIKA st.available > 0
+    MAKA [stock BERNILAI [available BERNILAI st.available - 1, v BERNILAI st.v + 1],
+          res BERNILAI "reserved", events BERNILAI {"StockReserved"}]
+    SELAINNYA [stock BERNILAI st, res BERNILAI "rejected", events BERNILAI {"StockRejected"}]
+
+Release(st, res) ==
+    JIKA res = "reserved"
+    MAKA [stock BERNILAI [available BERNILAI st.available + 1, v BERNILAI st.v + 1],
+          res BERNILAI "released", events BERNILAI {"StockReleased"}]
+    SELAINNYA [stock BERNILAI st, res BERNILAI res, events BERNILAI {}]
+
+\* ---- payment: the Payment aggregate; ok is the PSP's answer ----
+Answer(s, e) == [status BERNILAI s, events BERNILAI e]
+
+Charge(p, ok) ==
+    KONDISI p = "none" DAN ok       HASILNYA Answer("captured", {"PaymentCaptured"})
+       ATAU p = "none" DAN TIDAK ok HASILNYA Answer("declined", {"PaymentDeclined"})
+       ATAU LAINNYA                 HASILNYA Answer(p, {})
+
+Refund(p) ==
+    JIKA p = "captured" MAKA Answer("refunded", {"PaymentRefunded"}) SELAINNYA Answer(p, {})
+
+\* ---- the saga: an event gives its next state and the commands to send ----
+Go(s, cs) == [next BERNILAI s, cmds BERNILAI cs]
+
+SagaOn(s, t) ==
+    KONDISI t = "OrderPlaced"     DAN s = "none"      HASILNYA Go("reserving", {"ReserveStock"})
+       ATAU t = "StockReserved"   DAN s = "reserving" HASILNYA Go("charging", {"ChargePayment"})
+       ATAU t = "StockRejected"   DAN s = "reserving" HASILNYA Go("cancelled", {"CancelOrder"})
+       ATAU t = "PaymentCaptured" DAN s = "charging"  HASILNYA Go("done", {"ConfirmOrder"})
+       ATAU t = "PaymentDeclined" DAN s = "charging"
+                                  HASILNYA Go("cancelled", {"ReleaseStock", "CancelOrder"})
+       ATAU t = "PaymentCaptured" DAN s = "cancelled" DAN "refund_late" DALAM Fixes
+                                  HASILNYA Go("cancelled", {"RefundPayment"})
+       ATAU LAINNYA               HASILNYA Go(s, {})
+
+\* ---- the projector: one row per order ----
+Shown(t) ==
+    KONDISI t = "OrderPlaced"    HASILNYA "placed"
+       ATAU t = "OrderConfirmed" HASILNYA "confirmed"
+       ATAU LAINNYA              HASILNYA "cancelled"
+
+Project(row, m) ==
+    JIKA "skip_stale" DALAM Fixes DAN m.v <= row.v
+    MAKA row                                        \* older than what we show
+    SELAINNYA [status BERNILAI Shown(m.type), v BERNILAI m.v]
+
+VARIABEL order,        \* ordering's database: order[o] = [status, v]
+         stock,        \* inventory's database: [available, v]
+         reservation,  \* inventory's database: reservation[o]
+         working,      \* inventory handlers between load and save: [msg, seen]
+         payment,      \* payment's database: payment[o]
+         saga,         \* each saga's own storage: saga[o]
+         view,         \* projector's database: view[o] = [status, v]
+         emails,       \* emails[o] = confirmation emails the customer got
+         sending,      \* notifier: messages whose email went out, not recorded yet
+         queue,        \* messages sent and not yet acked
+         inbox,        \* messages their receivers recorded as handled
+         crashes
+
+vars == <<order, stock, reservation, working, payment, saga, view, emails, sending,
+          queue, inbox, crashes>>
+
+Init ==
+    DAN order       = [o DALAM Orders BERNILAI NoRow]
+    DAN stock       = [available BERNILAI Stock, v BERNILAI 0]
+    DAN reservation = [o DALAM Orders BERNILAI "none"]
+    DAN working     = {}
+    DAN payment     = [o DALAM Orders BERNILAI "none"]
+    DAN saga        = [o DALAM Orders BERNILAI "none"]
+    DAN view        = [o DALAM Orders BERNILAI NoRow]
+    DAN emails      = [o DALAM Orders BERNILAI 0]
+    DAN sending     = {}
+    DAN queue       = {}
+    DAN inbox       = {}
+    DAN crashes     = 0
+
+\* ---- the transport, shared by every service ----
+\* A worker may crash only while the crash budget lasts.
+MayCrash(crash) == crash BERARTI crashes < MaxCrashes
+
+\* A message its receiver has not handled yet, as far as its inbox knows.
+Fresh(m) == "inbox" TIDAK DALAM Fixes ATAU m TIDAK DALAM inbox
+
+\* What reaches the queue after a commit. If the worker crashes before
+\* it publishes, the messages are lost, unless they were committed to an
+\* outbox in the same transaction (the outbox's relay publishes them).
+Published(out, crash) == JIKA crash DAN "outbox" TIDAK DALAM Fixes MAKA {} SELAINNYA out
+
+\* The transaction for message m committed. Ack m, unless the worker
+\* crashed first: then the queue delivers m again. With an inbox, the
+\* same transaction recorded m as handled.
+Done(m, out, crash) ==
+    DAN queue'   = (queue SELISIH (JIKA crash MAKA {} SELAINNYA {m}))
+                   GABUNGAN Published(out, crash)
+    DAN inbox'   = JIKA "inbox" DALAM Fixes MAKA inbox GABUNGAN {m} SELAINNYA inbox
+    DAN crashes' = JIKA crash MAKA crashes + 1 SELAINNYA crashes
+
+\* With an inbox, a message handled before is acked and nothing more.
+Skip(m) ==
+    DAN m DALAM queue
+    DAN TIDAK Fresh(m)
+    DAN queue' = queue SELISIH {m}
+    DAN <<order, stock, reservation, working, payment, saga, view, emails, sending>> TETAP
+    DAN <<inbox, crashes>> TETAP
+
+\* ---- ordering service ----
+\* POST /orders: the customer places order o.
+PlaceOrder(o, crash) ==
+    DAN MayCrash(crash)
+    DAN MISALKAN r == OrderHandle(order[o], "PlaceOrder") HASILNYA
+           DAN r.events # {}
+           DAN order'   = [order KECUALI order[o] = r.row]
+           DAN queue'   = queue GABUNGAN Published(Out(r.events, o, r.row.v), crash)
+           DAN crashes' = JIKA crash MAKA crashes + 1 SELAINNYA crashes
+    DAN <<stock, reservation, working, payment, saga, view, emails, sending, inbox>> TETAP
+
+\* ConfirmOrder and CancelOrder, from the saga.
+Ordering(m, crash) ==
+    DAN m DALAM queue DAN m.to = "ordering" DAN Fresh(m) DAN MayCrash(crash)
+    DAN MISALKAN r == OrderHandle(order[m.order], m.type) HASILNYA
+           DAN order' = [order KECUALI order[m.order] = r.row]
+           DAN Done(m, Out(r.events, m.order, r.row.v), crash)
+    DAN <<stock, reservation, working, payment, saga, view, emails, sending>> TETAP
+
+\* ---- inventory service: load the Stock aggregate, decide, save ----
+InventoryLoad(m) ==
+    DAN m DALAM queue DAN m.to = "inventory" DAN Fresh(m)
+    DAN m TIDAK DALAM {w.msg UNTUK w DALAM working}
+    DAN working' = working GABUNGAN {[msg BERNILAI m, seen BERNILAI stock]}
+    DAN <<order, stock, reservation, payment, saga, view, emails, sending>> TETAP
+    DAN <<queue, inbox, crashes>> TETAP
+
+\* Without a version check, the save overwrites whatever another handler
+\* saved since this one loaded. With it, that save fails and m is retried.
+Save(w, crash) ==
+    DAN working' = working SELISIH {w}
+    DAN MISALKAN m == w.msg
+                 o == m.order
+                 r == JIKA m.type = "ReserveStock" MAKA Reserve(w.seen)
+                      SELAINNYA Release(w.seen, reservation[o])
+        HASILNYA
+           JIKA "version" DALAM Fixes DAN stock.v # w.seen.v
+           MAKA <<stock, reservation, queue, inbox, crashes>> TETAP  \* conflict: retry m
+           SELAINNYA DAN stock'       = r.stock
+                     DAN reservation' = [reservation KECUALI reservation[o] = r.res]
+                     DAN Done(m, Out(r.events, o, 0), crash)
+    DAN <<order, payment, saga, view, emails, sending>> TETAP
+
+InventorySave(m, crash) ==
+    DAN MayCrash(crash)
+    DAN ADA w DALAM working SEHINGGA w.msg = m DAN Save(w, crash)
+
+\* ---- payment service: asks the PSP, records its answer ----
+Payment(m, ok, crash) ==
+    DAN m DALAM queue DAN m.to = "payment" DAN Fresh(m) DAN MayCrash(crash)
+    DAN MISALKAN p == payment[m.order]
+                 r == JIKA m.type = "ChargePayment" MAKA Charge(p, ok) SELAINNYA Refund(p)
+        HASILNYA DAN payment' = [payment KECUALI payment[m.order] = r.status]
+                 DAN Done(m, Out(r.events, m.order, 0), crash)
+    DAN <<order, stock, reservation, working, saga, view, emails, sending>> TETAP
+
+\* ---- the saga: one process manager per order ----
+Saga(m, crash) ==
+    DAN m DALAM queue DAN m.to = "saga" DAN Fresh(m) DAN MayCrash(crash)
+    DAN MISALKAN r == SagaOn(saga[m.order], m.type) HASILNYA
+           DAN saga' = [saga KECUALI saga[m.order] = r.next]
+           DAN Done(m, Out(r.cmds, m.order, 0), crash)
+    DAN <<order, stock, reservation, working, payment, view, emails, sending>> TETAP
+
+\* No answer from payment yet, and the saga's timer fires: give up.
+PaymentTimeout(o, crash) ==
+    DAN saga[o] = "charging" DAN MayCrash(crash)
+    DAN saga'    = [saga KECUALI saga[o] = "cancelled"]
+    DAN queue'   = queue GABUNGAN Published(Out({"ReleaseStock", "CancelOrder"}, o, 0), crash)
+    DAN crashes' = JIKA crash MAKA crashes + 1 SELAINNYA crashes
+    DAN <<order, stock, reservation, working, payment, view, emails, sending, inbox>> TETAP
+
+\* ---- projector ----
+Projector(m) ==
+    DAN m DALAM queue DAN m.to = "projector" DAN Fresh(m)
+    DAN view' = [view KECUALI view[m.order] = Project(SEKARANG, m)]
+    DAN Done(m, {}, SALAH)
+    DAN <<order, stock, reservation, working, payment, saga, emails, sending>> TETAP
+
+\* ---- notifier: an event handler with a side effect outside our databases ----
+\* Call the email provider. With email_key the call carries the key
+\* "confirmed:<order>", and the provider sends one email per key.
+NotifySend(m) ==
+    DAN m DALAM queue DAN m.to = "notifier" DAN Fresh(m) DAN m TIDAK DALAM sending
+    DAN emails'  = [emails KECUALI emails[m.order] =
+                       JIKA "email_key" DALAM Fixes MAKA 1 SELAINNYA SEKARANG + 1]
+    DAN sending' = sending GABUNGAN {m}
+    DAN <<order, stock, reservation, working, payment, saga, view>> TETAP
+    DAN <<queue, inbox, crashes>> TETAP
+
+\* Then commit the inbox row and ack.
+NotifyDone(m) ==
+    DAN m DALAM sending
+    DAN sending' = sending SELISIH {m}
+    DAN Done(m, {}, SALAH)
+    DAN <<order, stock, reservation, working, payment, saga, view, emails>> TETAP
+
+\* Or crash in between: the email went out, but m was never recorded.
+NotifyCrash(m) ==
+    DAN m DALAM sending DAN crashes < MaxCrashes
+    DAN sending' = sending SELISIH {m}
+    DAN crashes' = crashes + 1
+    DAN <<order, stock, reservation, working, payment, saga, view, emails>> TETAP
+    DAN <<queue, inbox>> TETAP
+
+\* ---- the whole system ----
+Next ==
+    ATAU ADA o DALAM Orders, crash DALAM BOOLEAN SEHINGGA
+            PlaceOrder(o, crash) ATAU PaymentTimeout(o, crash)
+    ATAU ADA m DALAM Messages SEHINGGA
+            ATAU Skip(m) ATAU InventoryLoad(m) ATAU Projector(m)
+            ATAU NotifySend(m) ATAU NotifyDone(m) ATAU NotifyCrash(m)
+    ATAU ADA m DALAM Messages, crash DALAM BOOLEAN SEHINGGA
+            ATAU Ordering(m, crash) ATAU Saga(m, crash) ATAU InventorySave(m, crash)
+            ATAU ADA ok DALAM BOOLEAN SEHINGGA Payment(m, ok, crash)
+
+\* A worker's step on message m, without a crash.
+Work(m) ==
+    ATAU Skip(m) ATAU InventoryLoad(m) ATAU InventorySave(m, SALAH) ATAU Projector(m)
+    ATAU NotifySend(m) ATAU NotifyDone(m) ATAU Ordering(m, SALAH) ATAU Saga(m, SALAH)
+    ATAU ADA ok DALAM BOOLEAN SEHINGGA Payment(m, ok, SALAH)
+
+\* Messages some worker can act on now.
+Busy == queue GABUNGAN sending GABUNGAN {w.msg UNTUK w DALAM working}
+
+\* The workers keep working: while some message can be handled, some
+\* message is. Crashes, customers and timers get no fairness: they may
+\* happen, but nothing promises that they will.
+Fairness == ADIL_LEMAH TERHADAP vars (ADA m DALAM Busy SEHINGGA Work(m))
+
+Spec == Init DAN SELALU [Next] ATAU STUTTERING vars DAN Fairness
+
+\* ---- safety ----
+TypeOK ==
+    DAN order DALAM [Orders KE [status : {"none", "placed", "confirmed", "cancelled"},
+                                v : 0..2]]
+    DAN stock.available DALAM 0..Stock
+    DAN reservation DALAM [Orders KE {"none", "reserved", "rejected", "released"}]
+    DAN payment DALAM [Orders KE {"none", "captured", "declined", "refunded"}]
+    DAN saga DALAM [Orders KE {"none", "reserving", "charging", "done", "cancelled"}]
+    DAN queue BAGIAN DARI Messages DAN inbox BAGIAN DARI Messages
+    DAN sending BAGIAN DARI Messages
+
+Holders == {o DALAM Orders SEHINGGA reservation[o] = "reserved"}
+
+\* Every unit is on the shelf or held for exactly one order.
+StockConserved == stock.available + JUMLAH_ELEMEN(Holders) = Stock
+
+\* A confirmed order has its unit and its money.
+ConfirmedMeansPaid ==
+    SEMUA o DALAM Orders BERLAKU
+        order[o].status = "confirmed" BERARTI payment[o] = "captured"
+                                          DAN reservation[o] = "reserved"
+
+AtMostOneEmail == SEMUA o DALAM Orders BERLAKU emails[o] <= 1
+
+\* The "my orders" page never shows an older state than it showed before.
+ViewNeverGoesBack ==
+    SELALU [SEMUA o DALAM Orders BERLAKU view'[o].v >= view[o].v] ATAU STUTTERING view
+
+\* ---- liveness ----
+OrderCompletes ==
+    SEMUA o DALAM Orders BERLAKU
+        (order[o].status = "placed") MENUJU (order[o].status DALAM {"confirmed", "cancelled"})
+
+NoMoneyWithoutGoods ==
+    SEMUA o DALAM Orders BERLAKU
+        (payment[o] = "captured") MENUJU (order[o].status = "confirmed" ATAU payment[o] = "refunded")
+
+CancelledReleasesStock ==
+    SEMUA o DALAM Orders BERLAKU
+        (order[o].status = "cancelled") MENUJU (reservation[o] # "reserved")
+
+ViewCatchesUp ==
+    SEMUA o DALAM Orders BERLAKU
+        (order[o].status DALAM {"confirmed", "cancelled"}) MENUJU (view[o].status = order[o].status)
+
+CustomerEmailed ==
+    SEMUA o DALAM Orders BERLAKU (order[o].status = "confirmed") MENUJU (emails[o] >= 1)
+====
