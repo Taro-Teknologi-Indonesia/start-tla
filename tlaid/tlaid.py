@@ -15,14 +15,16 @@ JAR = os.environ.get("TLA_JAR") or os.path.join(HERE, "..", "tools", "tla2tools.
 
 # ---------------------------------------------------------------- keyword tables
 # Indonesian keyword -> TLA+ token.  None = decided by context:
-#   MAKA     -> THEN after JIKA, IN after MISALKAN, -> in a KASUS arm
+#   MAKA     -> THEN (JIKA p MAKA a SELAINNYA b)
+#   HASILNYA -> IN after MISALKAN, -> in a KONDISI arm
+#   ATAU     -> [] between KONDISI arms: the last ATAU before the next arm's HASILNYA, else \/
 #   TERHADAP -> the _ of ADIL_LEMAH/ADIL_KUAT TERHADAP v (A), i.e. WF_v(A) / SF_v(A)
 #   ATAU STUTTERING -> the _ of [A]_v, written [A] ATAU STUTTERING v
-#   DAN BERUBAH     -> the _ of <<A>>_v, written <<A>> DAN BERUBAH v
+#   DAN TIDAK STUTTERING -> <<A>>_v, written A DAN TIDAK STUTTERING v (A = a name, a call, or (...))
 #   TETAP    -> UNCHANGED; written after its operand (x TETAP) it is moved in front
 #   BERNILAI -> |-> directly inside [ ... ], :> anywhere else
 #   KECUALI  -> EXCEPT; each change repeats the function in front of KECUALI:
-#               [seen KECUALI seen[r] = 0, seen[q].n = LAMA + 1]  ->  [seen EXCEPT ![r] = 0, ![q].n = @ + 1]
+#               [seen KECUALI seen[r] = 0, seen[q].n = SEKARANG + 1]  ->  [seen EXCEPT ![r] = 0, ![q].n = @ + 1]
 SPEC_KW = {
     "MODUL": "MODULE", "MENGGUNAKAN": "EXTENDS", "KONSTANTA": "CONSTANTS",
     "VARIABEL": "VARIABLE", "ASUMSI": "ASSUME", "TEOREMA": "THEOREM",
@@ -31,17 +33,20 @@ SPEC_KW = {
     "BENAR": "TRUE", "SALAH": "FALSE",
     "SEMUA": "\\A", "ADA": "\\E", "PILIH": "CHOOSE",
     "BERLAKU": ":", "SEHINGGA": ":", "UNTUK": ":",
-    "BERNILAI": None, "SERTA": "@@", "KE": "->", "STUTTERING": None, "BERUBAH": None,
-    "TERHADAP": None, "ADIL_LEMAH": "WF", "ADIL_KUAT": "SF", "LAMA": "@",
+    "BERNILAI": None, "GABUNG_FUNGSI": "@@", "KE": "->", "STUTTERING": None, "BERUBAH": None,
+    "TERHADAP": None, "ADIL_LEMAH": "WF", "ADIL_KUAT": "SF", "SEKARANG": "@",
     "DALAM": "\\in", "GABUNGAN": "\\cup", "IRISAN": "\\cap", "SELISIH": "\\",
-    "HIMPUNAN_KUASA": "SUBSET", "GABUNGAN_SEMUA": "UNION", "SILANG": "\\X",
+    "SUBHIMPUNAN": "SUBSET", "GABUNGAN_SEMUA": "UNION", "KARTESIUS": "\\X",
     "KECUALI": "EXCEPT",
-    "JIKA": "IF", "MAKA": None, "SEBALIKNYA": "ELSE",
-    "KASUS": "CASE", "LAINNYA": "OTHER", "MISALKAN": "LET",
-    "TETAP": "UNCHANGED", "MUNGKIN": "ENABLED",
+    "JIKA": "IF", "MAKA": None, "SELAINNYA": "ELSE",
+    "KONDISI": "CASE", "HASILNYA": None, "LAINNYA": "OTHER", "MISALKAN": "LET",
+    "TETAP": "UNCHANGED", "IZINKAN": "ENABLED",
     "SELALU": "[]", "AKHIRNYA": "<>", "MENUJU": "~>",
     "BAGI": "\\div", "SAMBUNG": "\\o",
 }
+# words an earlier TLA-ID used, and what replaced them
+OLD_KW = {"KASUS": "KONDISI", "LAMA": "SEKARANG", "SERTA": "GABUNG_FUNGSI", "HIMPUNAN_KUASA": "SUBHIMPUNAN",
+          "SILANG": "KARTESIUS", "SEBALIKNYA": "SELAINNYA", "MUNGKIN": "IZINKAN"}
 PHRASES = {("TIDAK", "DALAM"): "\\notin", ("BAGIAN", "DARI"): "\\subseteq", ("UNTUK", "SEMUA"): "\\A"}
 FAIR = {"ADIL_LEMAH_": "WF_", "ADIL_KUAT_": "SF_"}
 BULLETS_ID = {"DAN", "ATAU"}
@@ -60,17 +65,17 @@ REV_WORD = {
     "MODULE": "MODUL", "EXTENDS": "MENGGUNAKAN", "CONSTANT": "KONSTANTA", "CONSTANTS": "KONSTANTA",
     "VARIABLE": "VARIABEL", "VARIABLES": "VARIABEL", "ASSUME": "ASUMSI", "THEOREM": "TEOREMA",
     "INSTANCE": "INSTANSIASI", "WITH": "DENGAN", "LOCAL": "LOKAL", "RECURSIVE": "REKURSIF",
-    "TRUE": "BENAR", "FALSE": "SALAH", "CHOOSE": "PILIH", "SUBSET": "HIMPUNAN_KUASA",
+    "TRUE": "BENAR", "FALSE": "SALAH", "CHOOSE": "PILIH", "SUBSET": "SUBHIMPUNAN",
     "UNION": "GABUNGAN_SEMUA", "EXCEPT": "KECUALI", "IF": "JIKA", "THEN": "MAKA",
-    "ELSE": "SEBALIKNYA", "CASE": "KASUS", "OTHER": "LAINNYA", "LET": "MISALKAN", "IN": "MAKA",
-    "UNCHANGED": "TETAP", "ENABLED": "MUNGKIN",
+    "ELSE": "SELAINNYA", "CASE": "KONDISI", "OTHER": "LAINNYA", "LET": "MISALKAN", "IN": "HASILNYA",
+    "UNCHANGED": "TETAP", "ENABLED": "IZINKAN",
 }
 REV_SYM = {
     "/\\": "DAN", "\\land": "DAN", "\\/": "ATAU", "\\lor": "ATAU", "~": "TIDAK", "\\lnot": "TIDAK",
     "\\neg": "TIDAK", "=>": "BERARTI", "<=>": "SETARA", "\\equiv": "SETARA", "\\A": "SEMUA",
     "\\E": "ADA", "\\in": "DALAM", "\\notin": "TIDAK DALAM", "\\subseteq": "BAGIAN DARI",
     "\\cup": "GABUNGAN", "\\union": "GABUNGAN", "\\cap": "IRISAN", "\\intersect": "IRISAN",
-    "\\": "SELISIH", "\\X": "SILANG", "\\times": "SILANG", "[]": "SELALU", "<>": "AKHIRNYA",
+    "\\": "SELISIH", "\\X": "KARTESIUS", "\\times": "KARTESIUS", "[]": "SELALU", "<>": "AKHIRNYA",
     "~>": "MENUJU", "\\div": "BAGI", "\\o": "SAMBUNG", "\\circ": "SAMBUNG",
 }
 REV_CFG = {
@@ -83,13 +88,13 @@ REV_CFG = {
 }
 # standard modules and the Indonesian wrapper that re-exports them
 STD = {
-    "Naturals": ("BilanganAsli", {"Nat": "Asli"}),
-    "Integers": ("BilanganBulat", {"Nat": "Asli", "Int": "Bulat"}),
+    "Naturals": ("HimpunanBilanganAsli", {"Nat": "BilanganAsli"}),
+    "Integers": ("HimpunanBilanganBulat", {"Nat": "BilanganAsli", "Int": "BilanganBulat"}),
     "Sequences": ("Barisan", {"Seq": "Barisan", "Len": "Panjang", "Head": "Kepala", "Tail": "Ekor",
-                               "Append": "Tambahkan", "SubSeq": "SubBarisan", "SelectSeq": "SaringBarisan"}),
-    "FiniteSets": ("HimpunanHingga", {"Cardinality": "Kardinalitas", "IsFiniteSet": "Berhingga"}),
-    "TLC": ("AlatTLC", {"Print": "Cetak", "PrintT": "CetakT", "Assert": "Tegaskan",
-                        "ToString": "KeTeks", "Permutations": "Permutasi",
+                               "Append": "TambahBuntut", "SubSeq": "SubBarisan", "SelectSeq": "SaringBarisan"}),
+    "FiniteSets": ("HimpunanTerbatas", {"Cardinality": "JUMLAH_ELEMEN", "IsFiniteSet": "ApakahHimpunanTerbatas"}),
+    "TLC": ("AlatTLC", {"Print": "Cetak", "PrintT": "CetakT", "Assert": "Pastikan",
+                        "ToString": "KeString", "Permutations": "Permutasi",
                         "RandomElement": "ElemenAcak", "SortSeq": "UrutkanBarisan"}),
 }
 
@@ -217,20 +222,80 @@ def postfix_tetap(toks, fname, ln):
             raise TlaidError(f"{fname}:{ln}:{toks[k][2] + 1}: {bad}")
     return segs                                       # anything else: TETAP in front, as in TLA+
 
+def action_start(toks, i):
+    """Token index where the action A of 'A DAN TIDAK STUTTERING v' starts (toks[i] is that DAN), or None.
+    A is a name, a call Name(...), M!Name, or a bracketed (...) / <<...>>, all on this line."""
+    code = [k for k in range(i) if toks[k][0] not in ("ws", "cmt")]
+    def back(n):                                      # start (index into code) of the primary ending at code[n]
+        t = toks[code[n]]
+        if t[1] in (")", ">>"):
+            opener, depth = ("(" if t[1] == ")" else "<<"), 0
+            for m in range(n, -1, -1):
+                depth += (toks[code[m]][1] == t[1]) - (toks[code[m]][1] == opener)
+                if depth == 0: break
+            else:
+                return None
+            if t[1] == ")" and m > 0 and is_name(toks[code[m - 1]]):
+                m -= 1                                # a call: Deliver(m)
+        elif is_name(t):
+            m = n
+        else:
+            return None
+        if m >= 2 and toks[code[m - 1]][1] == "!":    # Lock!Next, Locks(r)!Next
+            return back(m - 2)
+        return m
+    if not code:
+        return None
+    n = back(len(code) - 1)
+    return None if n is None else code[n]
+
+def kondisi_separator(lexed, li, i):
+    """Is the ATAU at lexed[li][i], in the value of a KONDISI arm, the [] before the next arm?
+    It is when the next HASILNYA at this bracket depth that no MISALKAN claims comes before any other ATAU."""
+    depth, lets = 0, 0
+    for lj in range(li, len(lexed)):
+        toks = lexed[lj]
+        if lj > li:
+            t0 = first_code(toks)
+            if t0 is not None and t0[0] != "cmt" and t0[2] == 0:
+                return False                          # a new definition: the KONDISI is over
+        for kind, text, _ in toks[i + 1 if lj == li else 0:]:
+            if kind in ("ws", "cmt", "str"):
+                continue
+            if text in OPENERS:
+                depth += 1
+            elif text in CLOSERS:
+                depth -= 1
+                if depth < 0:
+                    return False
+            elif depth:
+                continue
+            elif text in ("MISALKAN", "LET"):
+                lets += 1
+            elif text == "HASILNYA":
+                if not lets:
+                    return True
+                lets -= 1
+            elif text in ("KONDISI", "CASE"):
+                return False                          # a KONDISI inside takes every arm after it
+            elif text in ("ATAU", "[]", "SELALU") and not lets:
+                return False
+    return False
+
 def to_tla(src, fname="spec.tlaid"):
     lines = src.split("\n")
     lexed = lex(lines)
     out, shifts, stack, shifted_bullets = [], {}, [], []
     frames = [new_frame("root")]                     # open brackets
-    # stack entries: [what, line, bracket depth, state]; KASUS state is "panah" (waiting for MAKA) or "nilai"
+    # stack entries: [what, line, bracket depth, state]; KONDISI state is "panah" (waiting for HASILNYA) or "nilai"
     def drop_finished_kasus():
-        while stack and stack[-1][0] == "KASUS" and stack[-1][3] == "nilai":
+        while stack and stack[-1][0] == "KONDISI" and stack[-1][3] == "nilai":
             stack.pop()
     def kasus_ends_here(ln):
         for e in stack:
-            if e[0] == "KASUS" and e[3] == "panah":
-                raise TlaidError(f"{fname}:{e[1]}: KASUS di baris {e[1]} belum punya MAKA")
-        stack[:] = [e for e in stack if e[0] != "KASUS"]
+            if e[0] == "KONDISI" and e[3] == "panah":
+                raise TlaidError(f"{fname}:{e[1]}: KONDISI di baris {e[1]} belum punya HASILNYA")
+        stack[:] = [e for e in stack if e[0] != "KONDISI"]
     for ln, toks in enumerate(lexed, 1):
         line = lines[ln - 1]
         delta, pieces, cmap, groups, outcol, cause, last_code = 0, [], [], [], 0, None, None
@@ -271,7 +336,7 @@ def to_tla(src, fname="spec.tlaid"):
                     if (len(code) <= len(base) or [toks[k][1] for k in code[:len(base)]] != base
                             or toks[code[len(base)]][1] not in ("[", ".")):
                         hint = (f"misalnya [{shown} KECUALI {shown}[x] = 0]" if len(base) == 1 else
-                                f"atau beri nama dulu, misalnya MISALKAN f == {shown} MAKA [f KECUALI f[x] = 0]")
+                                f"atau beri nama dulu, misalnya MISALKAN f == {shown} HASILNYA [f KECUALI f[x] = 0]")
                         raise TlaidError(f"{fname}:{ln}:{col + 1}: setiap perubahan di KECUALI diawali {shown}, "
                                          f"sama persis dengan yang tertulis sebelum KECUALI, lalu [..] atau .nama; {hint}")
                     last = code[len(base) - 1]
@@ -290,28 +355,54 @@ def to_tla(src, fname="spec.tlaid"):
                     pad = len(p) - len(FAIR[p]); take = min(delta, pad); delta -= take
                     piece = FAIR[p] + " " * (pad - take) + text[len(p):]
                     pieces.append(piece); outcol += len(piece); i += 1; last_code = text; continue
-                elif (text in ("ATAU", "DAN") and i + 2 < len(toks) and toks[i + 1][0] == "ws"
-                        and toks[i + 2][1] == ("STUTTERING" if text == "ATAU" else "BERUBAH")):
-                    # the subscript of [A]_v (ATAU STUTTERING v) and <<A>>_v (DAN BERUBAH v)
-                    word, closer = toks[i + 2][1], ("]" if text == "ATAU" else ">>")
+                elif (text == "ATAU" and i + 2 < len(toks) and toks[i + 1][0] == "ws"
+                        and toks[i + 2][1] == "STUTTERING"):
+                    # the subscript of [A]_v, written [A] ATAU STUTTERING v
                     joined = "".join(pieces); body = joined.rstrip(" ")
-                    if last_code != closer or not body.endswith(closer):
-                        example = "[Next] ATAU STUTTERING vars" if text == "ATAU" else "<<A>> DAN BERUBAH vars"
-                        raise TlaidError(f"{fname}:{ln}:{col + 1}: {text} {word} hanya boleh langsung "
-                                         f"setelah {closer}, misalnya {example}")
-                    width = toks[i + 2][2] + len(word) - col
+                    if last_code != "]" or not body.endswith("]"):
+                        raise TlaidError(f"{fname}:{ln}:{col + 1}: ATAU STUTTERING hanya boleh langsung "
+                                         f"setelah ], misalnya [Next] ATAU STUTTERING vars")
+                    width = toks[i + 2][2] + len("STUTTERING") - col
                     pad = len(joined) - len(body) + width - 1; take = min(delta, pad); delta -= take
                     piece = "_" + " " * (pad - take)
                     pieces = [body, piece]; cmap[-1] = (col, len(body)); outcol = len(body) + len(piece)
-                    i += 3; last_code = word; continue
+                    i += 3; last_code = "STUTTERING"; continue
+                elif (text == "DAN" and i + 4 < len(toks) and toks[i + 1][0] == "ws" and toks[i + 2][1] == "TIDAK"
+                        and toks[i + 3][0] == "ws" and toks[i + 4][1] == "STUTTERING"):
+                    # <<A>>_v, written A DAN TIDAK STUTTERING v: A gets the << >> it needs
+                    joined = "".join(pieces); body = joined.rstrip(" ")
+                    a = action_start(toks, i)
+                    if a is None:
+                        raise TlaidError(f"{fname}:{ln}:{col + 1}: sebelum DAN TIDAK STUTTERING harus ada nama aksi, "
+                                         f"pemanggilan aksi, atau ekspresi dalam kurung di baris yang sama, misalnya "
+                                         f"Beat DAN TIDAK STUTTERING vars atau (x' = 1 DAN y' = 2) DAN TIDAK STUTTERING vars")
+                    oc = next(o for c, o in cmap if c == toks[a][2])
+                    wrap = toks[a][1] != "<<"                 # <<A>> DAN TIDAK STUTTERING v: already bracketed
+                    if wrap:
+                        body = body[:oc] + "<<" + body[oc:] + ">>"
+                        cmap[:] = [(c, o + 2 if o >= oc else o) for c, o in cmap]
+                    width = toks[i + 4][2] + len("STUTTERING") - col
+                    pad = len(joined) + width - len(body) - 1   # keep v in its column when the words allow
+                    if pad < 0:
+                        delta += -pad; pad = 0
+                    take = min(delta, pad); delta -= take
+                    piece = "_" + " " * (pad - take)
+                    cmap[-1] = (col, len(body) - 2)
+                    pieces = [body, piece]; outcol = len(body) + len(piece)
+                    i += 5; last_code = "STUTTERING"; continue
+                elif text == "BERUBAH" and last_code == "DAN":
+                    raise TlaidError(f"{fname}:{ln}:{col + 1}: <<A>> DAN BERUBAH v kini ditulis A DAN TIDAK STUTTERING v, "
+                                     f"misalnya Beat DAN TIDAK STUTTERING vars")
+                elif text in OLD_KW:
+                    raise TlaidError(f"{fname}:{ln}:{col + 1}: {text} kini ditulis {OLD_KW[text]}")
                 elif text in ("STUTTERING", "BERUBAH"):
                     raise TlaidError(f"{fname}:{ln}:{col + 1}: {text} hanya dipakai dalam [A] ATAU STUTTERING v "
-                                     f"atau <<A>> DAN BERUBAH v")
+                                     f"atau A DAN TIDAK STUTTERING v")
                 elif text == "TERHADAP":                 # WF_v / SF_v: ADIL_LEMAH TERHADAP v (A)
                     joined = "".join(pieces); body = joined.rstrip(" ")
                     if last_code in ("]", ">>"):
-                        raise TlaidError(f"{fname}:{ln}:{col + 1}: subskrip aksi kini ditulis "
-                                         f"[A] ATAU STUTTERING v atau <<A>> DAN BERUBAH v; TERHADAP hanya "
+                        raise TlaidError(f"{fname}:{ln}:{col + 1}: subskrip aksi ditulis "
+                                         f"[A] ATAU STUTTERING v atau A DAN TIDAK STUTTERING v; TERHADAP hanya "
                                          f"untuk ADIL_LEMAH TERHADAP v (A) dan ADIL_KUAT TERHADAP v (A)")
                     if last_code not in ("ADIL_LEMAH", "ADIL_KUAT") or not body.endswith(("WF", "SF")):
                         raise TlaidError(f"{fname}:{ln}:{col + 1}: TERHADAP harus langsung mengikuti "
@@ -337,33 +428,47 @@ def to_tla(src, fname="spec.tlaid"):
                         if nxt is None or nxt[1] != "TERHADAP":
                             raise TlaidError(f"{fname}:{ln}:{col + 1}: {text} harus diikuti TERHADAP dan subskripnya, "
                                              f"misalnya {text} TERHADAP vars (Next)")
-                    if text in BULLETS_ID and delta:
+                    if (text == "ATAU" and stack and stack[-1][0] == "KONDISI" and stack[-1][3] == "nilai"
+                            and stack[-1][2] == len(frames) and kondisi_separator(lexed, ln - 1, i)):
+                        rep = "[]"; stack[-1][3] = "panah"   # ATAU between two KONDISI arms
+                    elif text in BULLETS_ID and delta:
                         shifted_bullets.append((ln, col, delta, text, cause))
                     if text == "JIKA": stack.append(["JIKA", ln, 0, ""])
                     elif text == "MISALKAN": stack.append(["MISALKAN", ln, 0, ""])
-                    elif text == "KASUS": stack.append(["KASUS", ln, len(frames), "panah"])
+                    elif text == "KONDISI": stack.append(["KONDISI", ln, len(frames), "panah"])
                     elif text == "LAINNYA":
-                        if stack and stack[-1][0] == "KASUS": stack[-1][3] = "panah"
+                        if stack and stack[-1][0] == "KONDISI": stack[-1][3] = "panah"
                     elif text == "SELALU":
-                        if stack and stack[-1][0] == "KASUS" and stack[-1][3] == "nilai": stack[-1][3] = "panah"
+                        if stack and stack[-1][0] == "KONDISI" and stack[-1][3] == "nilai": stack[-1][3] = "panah"
+                    elif text == "HASILNYA":
+                        drop_finished_kasus()
+                        if stack and stack[-1][0] == "KONDISI":
+                            rep = "->"; stack[-1][3] = "nilai"
+                        elif stack and stack[-1][0] == "MISALKAN":
+                            stack.pop(); rep = "IN"
+                        elif stack and stack[-1][0] == "JIKA":
+                            raise TlaidError(f"{fname}:{ln}:{col + 1}: JIKA di baris {stack[-1][1]} dilanjutkan MAKA, "
+                                             f"bukan HASILNYA: JIKA p MAKA a SELAINNYA b")
+                        else:
+                            raise TlaidError(f"{fname}:{ln}:{col + 1}: HASILNYA tanpa MISALKAN atau KONDISI yang masih terbuka")
                     elif text == "MAKA":
                         drop_finished_kasus()
-                        if stack and stack[-1][0] == "KASUS":
-                            rep = "->"; stack[-1][3] = "nilai"
-                        elif not stack or stack[-1][0] == "JIKA-MAKA":
-                            raise TlaidError(f"{fname}:{ln}:{col + 1}: MAKA tanpa JIKA, MISALKAN atau KASUS yang masih terbuka")
-                        else:
-                            opener = stack.pop()
-                            if opener[0] == "JIKA":
-                                rep = "THEN"; stack.append(["JIKA-MAKA", opener[1], 0, ""])
-                            else:
-                                rep = "IN"
-                    elif text == "SEBALIKNYA":
+                        if stack and stack[-1][0] == "MISALKAN":
+                            raise TlaidError(f"{fname}:{ln}:{col + 1}: MISALKAN kini ditutup dengan HASILNYA, "
+                                             f"misalnya MISALKAN x == 2 HASILNYA x + 1")
+                        if stack and stack[-1][0] == "KONDISI":
+                            raise TlaidError(f"{fname}:{ln}:{col + 1}: cabang KONDISI kini memakai HASILNYA, misalnya "
+                                             f"KONDISI x > 0 HASILNYA \"positif\" ATAU LAINNYA HASILNYA \"bukan\"")
+                        if not stack or stack[-1][0] != "JIKA":
+                            raise TlaidError(f"{fname}:{ln}:{col + 1}: MAKA tanpa JIKA yang masih terbuka")
+                        opener = stack.pop()
+                        rep = "THEN"; stack.append(["JIKA-MAKA", opener[1], 0, ""])
+                    elif text == "SELAINNYA":
                         drop_finished_kasus()
                         if stack and stack[-1][0] == "JIKA":
-                            raise TlaidError(f"{fname}:{ln}:{col + 1}: JIKA di baris {stack[-1][1]} belum punya MAKA sebelum SEBALIKNYA ini")
+                            raise TlaidError(f"{fname}:{ln}:{col + 1}: JIKA di baris {stack[-1][1]} belum punya MAKA sebelum SELAINNYA ini")
                         if not stack or stack[-1][0] != "JIKA-MAKA":
-                            raise TlaidError(f"{fname}:{ln}:{col + 1}: SEBALIKNYA tanpa JIKA ... MAKA sebelumnya")
+                            raise TlaidError(f"{fname}:{ln}:{col + 1}: SELAINNYA tanpa JIKA ... MAKA sebelumnya")
                         stack.pop()
                     rep = rep or SPEC_KW[text]
                 elif text == "EXCEPT":
@@ -371,9 +476,9 @@ def to_tla(src, fname="spec.tlaid"):
                 elif text in ("IF", "LET"):               # English keywords still work
                     stack.append(["JIKA" if text == "IF" else "MISALKAN", ln, 0, ""])
                 elif text == "CASE":
-                    stack.append(["KASUS", ln, len(frames), "panah"])
+                    stack.append(["KONDISI", ln, len(frames), "panah"])
                 elif text == "OTHER":
-                    if stack and stack[-1][0] == "KASUS": stack[-1][3] = "panah"
+                    if stack and stack[-1][0] == "KONDISI": stack[-1][3] = "panah"
                 elif text in ("THEN", "IN"):
                     drop_finished_kasus()
                     if stack:
@@ -385,7 +490,7 @@ def to_tla(src, fname="spec.tlaid"):
             elif kind == "sym":
                 if text in BULLETS_TLA and delta:
                     shifted_bullets.append((ln, col, delta, text, cause))
-                if stack and stack[-1][0] == "KASUS":
+                if stack and stack[-1][0] == "KONDISI":
                     if text == "->" and stack[-1][3] == "panah": stack[-1][3] = "nilai"
                     elif text == "[]" and stack[-1][3] == "nilai": stack[-1][3] = "panah"
                 if text == "," and top["base"]:
@@ -394,7 +499,7 @@ def to_tla(src, fname="spec.tlaid"):
                     frames.append(new_frame(text, (ln - 1, i)))
                 elif text in CLOSERS and len(frames) > 1:
                     frames.pop()
-                    while stack and stack[-1][0] == "KASUS" and stack[-1][2] > len(frames):
+                    while stack and stack[-1][0] == "KONDISI" and stack[-1][2] > len(frames):
                         stack.pop()
             if kind != "cmt":
                 last_code = text
@@ -411,10 +516,10 @@ def to_tla(src, fname="spec.tlaid"):
         if groups or any(s != o for s, o in cmap):
             shifts[ln] = {"t": cmap, "g": groups}
         out.append("".join(pieces))
-    stack[:] = [e for e in stack if not (e[0] == "KASUS" and e[3] == "nilai")]
+    stack[:] = [e for e in stack if not (e[0] == "KONDISI" and e[3] == "nilai")]
     if stack:
         what, ln = stack[-1][0], stack[-1][1]
-        need = "SEBALIKNYA" if what == "JIKA-MAKA" else "MAKA"
+        need = {"JIKA-MAKA": "SELAINNYA", "JIKA": "MAKA"}.get(what, "HASILNYA")
         raise TlaidError(f"{fname}:{ln}: {what.split('-')[0]} di baris {ln} belum ditutup dengan {need}")
     # a bullet that moved is only a problem if a later line lines up a bullet under it
     for ln, col, d, word, cause in shifted_bullets:
@@ -452,9 +557,9 @@ def glued(ta, na, tb, nb):
     if left_word and right_word: return 1
     is_kw = lambda x: bool(x) and (x.split()[0] in SPEC_KW or x.startswith("ADIL_"))
     if left_word and na != ta and is_kw(na) and not nb.startswith((",", ")", "]", "}", ">>", ";")):
-        return 1                                        # MUNGKIN(x) -> MUNGKIN (x), but {BENAR, SALAH}
+        return 1                                        # IZINKAN(x) -> IZINKAN (x), but {BENAR, SALAH}
     if right_word and nb != tb and is_kw(nb) and not na.endswith(("(", "[", "{", "<<")):
-        return 1                                        # x):>1 -> x) BERNILAI 1, but (SUBSET S -> (HIMPUNAN_KUASA S
+        return 1                                        # x):>1 -> x) BERNILAI 1, but (SUBSET S -> (SUBHIMPUNAN S
     if na.startswith("ADIL_") and nb.startswith("("): return 1  # ADIL_LEMAH TERHADAP vars (Next)
     return 0
 
@@ -484,6 +589,22 @@ def to_tlaid(src, renames=None, colmap=None):
         return s
     except_bangs = {}                               # ! of an EXCEPT change -> (its frame, its column)
     frames = [frame("root")]
+    wrap_guards = []                                # (first, last) code indices of CASE guards to bracket
+    def case_guard(n):
+        """The guard after the CASE [] at code[n], when it needs brackets: a top-level \\/ in it
+        would otherwise read as the ATAU that separates the arms."""
+        depth, top_or = 0, False
+        for m in range(n + 1, len(code)):
+            t = tok(code[m])[1]
+            if t in OPENERS: depth += 1
+            elif t in CLOSERS:
+                depth -= 1
+                if depth < 0: return None
+            elif depth == 0:
+                if t == "->": return (n + 1, m - 1) if top_or and m - 1 > n else None
+                if t in ("\\/", "\\lor"): top_or = True
+                if t in ("[]", "CASE"): return None
+        return None
     def match_close(n):                             # index in `code` of the ] matching the [ at code[n]
         depth = 0
         for m in range(n, len(code)):
@@ -532,8 +653,36 @@ def to_tlaid(src, renames=None, colmap=None):
             pass
         elif kind == "word" and text.startswith("_") and n > 0 and tok(code[n - 1])[1] in ("]", ">>") \
                 and code[n - 1][0] == q[0] and tok(code[n - 1])[2] + len(tok(code[n - 1])[1]) == col:
-            word = "ATAU STUTTERING " if tok(code[n - 1])[1] == "]" else "DAN BERUBAH "
-            nt[q] = (word + text[1:]).strip()            # [Next]_vars -> [Next] ATAU STUTTERING vars
+            if tok(code[n - 1])[1] == "]":
+                nt[q] = ("ATAU STUTTERING " + text[1:]).strip()   # [Next]_vars -> [Next] ATAU STUTTERING vars
+            else:                                     # <<Beat>>_v -> Beat DAN TIDAK STUTTERING v
+                nt[q] = ("DAN TIDAK STUTTERING " + text[1:]).strip()
+                close, depth = n - 1, 0
+                for m in range(close, -1, -1):
+                    t = tok(code[m])[1]
+                    depth += (t == ">>") - (t == "<<")
+                    if depth == 0: break
+                inner = [tok(code[k]) for k in range(m + 1, close)]
+                def simple(ts):                       # Name, Name(...), M!Name(...)
+                    k = 0
+                    while True:
+                        if k >= len(ts) or not is_name(ts[k]): return False
+                        k += 1
+                        if k < len(ts) and ts[k][1] == "(":
+                            d = 0
+                            for k2 in range(k, len(ts)):
+                                d += (ts[k2][1] == "(") - (ts[k2][1] == ")")
+                                if d == 0: break
+                            else:
+                                return False
+                            k = k2 + 1
+                        if k == len(ts): return True
+                        if ts[k][1] != "!": return False
+                        k += 1
+                if simple(inner):
+                    nt[code[m]] = ""; nt[code[close]] = ""
+                else:
+                    nt[code[m]] = "("; nt[code[close]] = ")"
         elif kind == "word":
             if text == "CASE": top["case"] = True
             if text == "EXCEPT":
@@ -560,14 +709,18 @@ def to_tlaid(src, renames=None, colmap=None):
             elif text == ":>":
                 if not (top["k"] == "[" and not top["exc"]): nt[q] = "BERNILAI"
             elif text == "@@":
-                nt[q] = "SERTA"
+                nt[q] = "GABUNG_FUNGSI"
             elif text == "@":
-                nt[q] = "LAMA"
+                nt[q] = "SEKARANG"
             elif text == "->":
-                if top["case"]: nt[q] = "MAKA"
+                if top["case"]: nt[q] = "HASILNYA"
                 elif top["k"] == "[" and not top["exc"]: nt[q] = "KE"
             elif text == "[]":
                 if not top["case"]: nt[q] = "SELALU"
+                else:
+                    nt[q] = "ATAU"                    # between CASE arms
+                    guard = case_guard(n)
+                    if guard: wrap_guards.append(guard)
             elif (text == "!" and n > 0 and top["exc"] and top["base"] and tok(code[n - 1])[1] in ("EXCEPT", ",")
                     and n + 1 < len(code) and tok(code[n + 1])[1] in ("[", ".")):
                 nt[q] = top["base"]; except_bangs[q] = (id(top), col)   # ![r] = v  ->  seen[r] = v
@@ -577,6 +730,9 @@ def to_tlaid(src, renames=None, colmap=None):
                 frames.append(frame(text, n))
             elif text in CLOSERS and len(frames) > 1:
                 frames.pop()
+    for a, b in wrap_guards:                        # [] p \/ q -> e  ->  ATAU (p ATAU q) HASILNYA e
+        qa, qb = code[a], code[b]
+        nt[qa] = "(" + nt.get(qa, tok(qa)[1]); nt[qb] = nt.get(qb, tok(qb)[1]) + ")"
     # a change that continues on the next line, lined up under the first one, stays lined up
     line_first = {}
     for q2 in code:
@@ -655,10 +811,10 @@ def cfg_to_tlaid(src):
 def wrapper_modules():
     mods = {}
     for std, (name, ops) in STD.items():
-        ext = [std] + (["BilanganAsli"] if name == "BilanganBulat" else [])
+        ext = [std] + (["HimpunanBilanganAsli"] if name == "HimpunanBilanganBulat" else [])
         body = []
         for en, idn in ops.items():
-            if name == "BilanganBulat" and en == "Nat":
+            if name == "HimpunanBilanganBulat" and en == "Nat":
                 continue
             arity = {"Seq": "S", "Len": "s", "Head": "s", "Tail": "s", "Append": "s, e",
                      "SubSeq": "s, m, n", "Cardinality": "S", "IsFiniteSet": "S", "Print": "out, val",
@@ -718,12 +874,16 @@ MSG = [
      r"Selesai menghitung keadaan awal: \1 keadaan berbeda dihasilkan pada \2."),
     (r"^Computing initial states\.\.\.", "Menghitung keadaan awal..."),
     (r"^Starting\.\.\. \((.*)\)", r"Mulai... (\1)"),
-    (r"^Finished in (\S+) at \((.*)\)", r"Selesai dalam \1 pada (\2)"),
+    (r"^Finished in (.+?) at \((.*)\)", r"Selesai dalam \1 pada (\2)"),
     (r"^Checking temporal properties for the complete state space with (\d+) total distinct states at \((.*)\)",
      r"Memeriksa properti temporal untuk seluruh ruang keadaan (\1 keadaan berbeda) pada (\2)"),
     (r"^Checking (\d+) branches of temporal properties for the complete state space with (\d+) total distinct states at \((.*)\)",
      r"Memeriksa \1 cabang properti temporal untuk seluruh ruang keadaan (\2 keadaan berbeda) pada (\3)"),
-    (r"^Finished checking temporal properties in (\S+) at (.*)", r"Selesai memeriksa properti temporal dalam \1 pada \2"),
+    (r"^Finished checking temporal properties in (.+?) at (.*)", r"Selesai memeriksa properti temporal dalam \1 pada \2"),
+    (r"^Checking temporal properties for the current state space with (\d+) total distinct states at \((.*)\)",
+     r"Memeriksa properti temporal untuk ruang keadaan sejauh ini (\1 keadaan berbeda) pada (\2)"),
+    (r"^Checking (\d+) branches of temporal properties for the current state space with (\d+) total distinct states at \((.*)\)",
+     r"Memeriksa \1 cabang properti temporal untuk ruang keadaan sejauh ini (\2 keadaan berbeda) pada (\3)"),
     (r"^The error occurred when TLC was evaluating the nested", "Kesalahan terjadi saat TLC mengevaluasi ekspresi bertingkat"),
     (r"^expressions at the following positions:", "pada posisi berikut:"),
     (r"^Attempted to apply function:", "Mencoba menerapkan fungsi:"),
@@ -735,7 +895,7 @@ MSG = [
     (r"^Could not parse module (\S+) from file (.*)", r"Modul \1 tidak dapat diurai dari berkas \2"),
     (r"^Unknown operator: `(.*)'\.", r"Operator tidak dikenal: `\1'."),
     (r"^Semantic errors:", "Kesalahan semantik:"),
-    (r"^<> followed by action not of form <<A>>_v\.", "AKHIRNYA diikuti aksi yang tidak berbentuk <<A>> DAN BERUBAH v."),
+    (r"^<> followed by action not of form <<A>>_v\.", "AKHIRNYA diikuti aksi yang tidak berbentuk A DAN TIDAK STUTTERING v."),
     (r"^\[\] followed by action not of form \[A\]_v\.", "SELALU diikuti aksi yang tidak berbentuk [A] ATAU STUTTERING v."),
     (r"^Was expecting \"(.*)\"", r'Yang diharapkan: "\1"'),
     (r"^Trace exploration spec path: (.*)", r"Spesifikasi penelusuran jejak: \1"),
@@ -750,7 +910,8 @@ MSG += [
      r"\1Perkiraan peluang TLC tidak memeriksa semua keadaan yang terjangkau"),
     (r"^(\s*)because two distinct states had the same fingerprint:", r"\1karena dua keadaan berbeda punya fingerprint yang sama:"),
     (r"^(\s*)calculated \(optimistic\):(.*)", r"\1dihitung (optimistis):\2"),
-    (r"^Progress\((\d+)\) at (.*): (\d+) states? generated(.*), (\d+) distinct states? found(.*), (\d+) states? left on queue\.",
+    (r"^(\s*)based on the actual fingerprints:(.*)", r"\1berdasarkan fingerprint yang sebenarnya:\2"),
+    (r"^Progress\((\d+)\) at (.*?): ([\d,]+) states? generated(.*?), ([\d,]+) distinct states? found(.*?), ([\d,]+) states? left on queue\.",
      r"Kemajuan(\1) pada \2: \3 keadaan dihasilkan\4, \5 keadaan berbeda ditemukan\6, \7 keadaan tersisa di antrean."),
     (r"^Implied-temporal checking--satisfiability problem has (\d+) branch(?:es)?\.",
      r"Pemeriksaan temporal tersirat: masalah keterpenuhan punya \1 cabang."),
@@ -796,7 +957,7 @@ NOISE = ("Warning: Please run the Java VM", "(Use the -nowarning option", "Picke
 POS1 = re.compile(r"line (\d+), col (\d+) to line (\d+), col (\d+) of module (\w+)")
 POS2 = re.compile(r"[Ll]ine (\d+), column (\d+) to line (\d+), column (\d+) in (\w+)")
 POS3 = re.compile(r"at line (\d+), column (\d+)")
-VALUE_WORDS = {"TRUE": "BENAR", "FALSE": "SALAH", "Nat": "Asli", "Int": "Bulat"}   # the sets print by name
+VALUE_WORDS = {"TRUE": "BENAR", "FALSE": "SALAH", "Nat": "BilanganAsli", "Int": "BilanganBulat"}   # the sets print by name
 
 def src_col(shifts, mod, line, col, end=False):
     """Map a 1-based TLC column on `line` back to the .tlaid file."""
@@ -834,7 +995,7 @@ def translate_values(s):
     pieces = re.split(r'("(?:[^"\\]|\\.)*")', s)
     for k in range(0, len(pieces), 2):
         pieces[k] = re.sub(r"\b(TRUE|FALSE|Nat|Int)\b", lambda m: VALUE_WORDS[m.group(1)], pieces[k])
-        pieces[k] = pieces[k].replace("|->", "BERNILAI").replace(":>", "BERNILAI").replace("@@", "SERTA")
+        pieces[k] = pieces[k].replace("|->", "BERNILAI").replace(":>", "BERNILAI").replace("@@", "GABUNG_FUNGSI")
         pieces[k] = re.sub(r"^(\s*)/\\ ", r"\1DAN ", pieces[k])
         pieces[k] = re.sub(r"^(\s*)\\/ ", r"\1ATAU ", pieces[k])
     return "".join(pieces)
@@ -868,7 +1029,7 @@ def translate_output(text, shifts, srcs):
             line = f'Menemukan "{kw}" di baris {l}, kolom {c}{rest}'
         pc = re.match(r"^(\s*)Precedence conflict between ops (\S+) in block (.*) and (\S+)\.", line)
         if pc:
-            idn = lambda op: REV_SYM.get(op, op)
+            idn = lambda op: REV_SYM.get(op, REV_WORD.get(op, op))
             line = f"{pc[1]}Konflik presedensi antara operator {idn(pc[2])} di blok {pc[3]} dan {idn(pc[4])}. Tambahkan tanda kurung."
         if any(en in line for en, _ in REPL_PHRASES[1:]) and not line.startswith(("Kesalahan", "Keadaan")):
             for en, idn in REPL_PHRASES:
@@ -931,9 +1092,9 @@ REPL_PHRASES = [
     ("Attempted to access index", "Mencoba mengakses indeks"),
     ("which is out of bounds.", "yang di luar batas."),
     (" of tuple ", " dari tuple "),
-    ("Attempted to evaluate a CASE with no conditions true.", "Mencoba mengevaluasi KASUS tanpa satu pun kondisi yang benar."),
+    ("Attempted to evaluate a CASE with no conditions true.", "Mencoba mengevaluasi KONDISI tanpa satu pun cabang yang benar."),
     ("In computing next states, TLC encountered a CASE with no conditions true.",
-     "Saat menghitung keadaan berikutnya, TLC menemukan KASUS tanpa satu pun kondisi yang benar."),
+     "Saat menghitung keadaan berikutnya, TLC menemukan KONDISI tanpa satu pun cabang yang benar."),
     ("should be an integer, but instead it is:", "seharusnya bilangan bulat, tetapi nilainya:"),
     ("The first argument of", "Argumen pertama"),
     ("but S was not enumerable.", "tetapi S tidak dapat dienumerasi."),
@@ -942,7 +1103,7 @@ REPL_PHRASES = [
     ("which is not a TLC function value, is in the set of functions:", "yang bukan nilai fungsi TLC, termasuk dalam himpunan fungsi:"),
     ("is an element of the string", "adalah anggota string"),
     ("evaluated to FALSE; the second argument was:", "bernilai SALAH; argumen keduanya:"),
-    ("Assert", "Tegaskan"),
+    ("Assert", "Pastikan"),
     ("domain.", "domainnya."),
     ("Attempted to compute the value of an expression of form CHOOSE x \\in S: P,",
      "Mencoba menghitung nilai ekspresi berbentuk PILIH x DALAM S SEHINGGA P,"),
@@ -1065,8 +1226,8 @@ def main(argv):
         if os.path.exists(base + ".tlaid"):
             print(f"{base}.tlaid sudah ada"); return 1
         open(base + ".tlaid", "w").write(
-            f"---- MODUL {name} ----\nMENGGUNAKAN BilanganAsli\n\nVARIABEL x\n\nInit == x = 0\n"
-            f"Next == x' = x\n\nSpec == Init DAN SELALU [Next] ATAU STUTTERING x\n\nTypeOK == x DALAM Asli\n====\n")
+            f"---- MODUL {name} ----\nMENGGUNAKAN HimpunanBilanganAsli\n\nVARIABEL x\n\nInit == x = 0\n"
+            f"Next == x' = x\n\nSpec == Init DAN SELALU [Next] ATAU STUTTERING x\n\nTypeOK == x DALAM BilanganAsli\n====\n")
         open(base + ".cfgid", "w").write("SPESIFIKASI Spec\nINVARIAN TypeOK\n")
         print(f"Dibuat: {base}.tlaid dan {base}.cfgid"); return 0
     if len(argv) < 2:

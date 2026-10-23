@@ -1,0 +1,9 @@
+SPESIFIKASI Spec
+KONSTANTA
+    Orders = {o1, o2}
+    Stock = 1
+    MaxCrashes = 1
+    Fixes = {}
+INVARIAN TypeOK StockConserved ConfirmedMeansPaid AtMostOneEmail
+PROPERTI ViewNeverGoesBack OrderCompletes NoMoneyWithoutGoods CancelledReleasesStock ViewCatchesUp CustomerEmailed
+CEK_KEBUNTUAN SALAH

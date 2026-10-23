@@ -4,6 +4,7 @@ TLA_JAR_URL ?= https://github.com/tlaplus/tlaplus/releases/latest/download/tla2t
 JAR         := tools/tla2tools.jar
 JAVA        ?= java
 WORKERS     ?= auto
+TLC_FLAGS   ?=
 STATES_DIR  := states
 
 # Usage: make check SPEC=Counter   (SPEC = module name without .tla, inside specs/)
@@ -23,7 +24,7 @@ TLAID_SRC := $(DIR)/$(SPEC).tlaid
 
 help: ## Show this help
 	@awk 'BEGIN{FS=":.*## "} /^[a-zA-Z_-]+:.*## /{printf "  \033[36m%-10s\033[0m %s\n",$$1,$$2}' $(MAKEFILE_LIST)
-	@echo "\nVariables: SPEC=<Module> (default: $(SPEC)), WORKERS=<n|auto>"
+	@echo "\nVariables: SPEC=<Module> (default: $(SPEC)), WORKERS=<n|auto>, TLC_FLAGS=<extra TLC options>"
 
 setup: $(JAR) ## Check Java and download tla2tools.jar
 	@$(JAVA) -version 2>&1 | head -1
@@ -38,11 +39,11 @@ parse: $(JAR) ## Syntax/semantic check with SANY: make parse SPEC=Name
 
 check tlc: $(JAR) ## Run the TLC model checker: make check SPEC=Name
 	@mkdir -p $(STATES_DIR)
-	$(TLA_CP) tlc2.TLC -workers $(WORKERS) -metadir $(STATES_DIR) -config $(CFG) $(TLA)
+	$(TLA_CP) tlc2.TLC -workers $(WORKERS) $(TLC_FLAGS) -metadir $(STATES_DIR) -config $(CFG) $(TLA)
 
 simulate: $(JAR) ## Random simulation (no exhaustive search): make simulate SPEC=Name
 	@mkdir -p $(STATES_DIR)
-	$(TLA_CP) tlc2.TLC -simulate -workers $(WORKERS) -metadir $(STATES_DIR) -config $(CFG) $(TLA)
+	$(TLA_CP) tlc2.TLC -simulate -workers $(WORKERS) $(TLC_FLAGS) -metadir $(STATES_DIR) -config $(CFG) $(TLA)
 
 pcal: $(JAR) ## Translate PlusCal to TLA+ in place: make pcal SPEC=Name
 	$(TLA_CP) pcal.trans $(TLA)
@@ -57,7 +58,7 @@ new: ## Scaffold a new spec: make new SPEC=Name
 	@echo "Created $(TLA) and $(CFG)"
 
 cek: $(JAR) ## TLA-ID: model-check an Indonesian spec: make cek SPEC=Name
-	$(TLAID) cek $(TLAID_SRC) -workers $(WORKERS)
+	$(TLAID) cek $(TLAID_SRC) -workers $(WORKERS) $(TLC_FLAGS)
 
 urai: $(JAR) ## TLA-ID: parse an Indonesian spec with SANY: make urai SPEC=Name
 	$(TLAID) urai $(TLAID_SRC)
