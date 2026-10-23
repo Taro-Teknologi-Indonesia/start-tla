@@ -12,7 +12,7 @@ Reset     == count = Max DAN count' = 0
 
 Next == Increment ATAU Reset
 
-Spec == Init DAN SELALU [Next] TERHADAP count
+Spec == Init DAN SELALU [Next] ATAU STUTTERING count
 
 TypeOK == count DALAM 0..Max
 =============================================================================
