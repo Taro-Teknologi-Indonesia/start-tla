@@ -56,7 +56,7 @@ Variables: `SPEC` (default `Counter`), `WORKERS` (default `auto`), `TLA_JAR_URL`
 
 ## TLA-ID: specs with Indonesian keywords
 
-TLA-ID lets you write the same specs with Indonesian keywords (`DAN`, `ATAU`, `SEMUA x DALAM S BERLAKU ...`, `JIKA ... MAKA ... SEBALIKNYA`, `vars TETAP`). `tlaid/tlaid.py` swaps each keyword for its TLA+ token without moving any line, runs the same SANY and TLC, and prints TLC's report in Indonesian with line numbers pointing at your file.
+TLA-ID lets you write the same specs with Indonesian keywords (`DAN`, `ATAU`, `SEMUA x DALAM S BERLAKU ...`, `JIKA ... MAKA ... SELAINNYA`, `MISALKAN ... HASILNYA ...`, `KONDISI ... HASILNYA ... ATAU LAINNYA HASILNYA ...`, `vars TETAP`). `tlaid/tlaid.py` swaps each keyword for its TLA+ token without moving any line, runs the same SANY and TLC, and prints TLC's report in Indonesian with line numbers pointing at your file.
 
 A TLA-ID spec `Foo` is `specs/Foo.tlaid` plus `specs/Foo.cfgid`:
 
