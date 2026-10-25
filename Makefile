@@ -1,6 +1,6 @@
 # TLA+ command-line helpers. Run `make help` for the list of targets.
 
-TLA_JAR_URL ?= https://github.com/tlaplus/tlaplus/releases/latest/download/tla2tools.jar
+TLA_JAR_URL ?= https://github.com/tlaplus/tlaplus/releases/download/v1.8.0/tla2tools.jar
 JAR         := tools/tla2tools.jar
 JAVA        ?= java
 WORKERS     ?= auto
