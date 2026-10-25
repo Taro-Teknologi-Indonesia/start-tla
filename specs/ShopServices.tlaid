@@ -169,8 +169,8 @@ Published(out, crash) == JIKA crash DAN "outbox" TIDAK DALAM Fixes MAKA {} SELAI
 \* same transaction recorded m as handled.
 Done(m, out, crash) ==
     DAN queue'   = (queue SELISIH (JIKA crash MAKA {} SELAINNYA {m}))
-                   GABUNGAN Published(out, crash)
-    DAN inbox'   = JIKA "inbox" DALAM Fixes MAKA inbox GABUNGAN {m} SELAINNYA inbox
+                   GABUNG Published(out, crash)
+    DAN inbox'   = JIKA "inbox" DALAM Fixes MAKA inbox GABUNG {m} SELAINNYA inbox
     DAN crashes' = JIKA crash MAKA crashes + 1 SELAINNYA crashes
 
 \* With an inbox, a message handled before is acked and nothing more.
@@ -188,7 +188,7 @@ PlaceOrder(o, crash) ==
     DAN MISALKAN r == OrderHandle(order[o], "PlaceOrder") HASILNYA
            DAN r.events # {}
            DAN order'   = [order KECUALI order[o] = r.row]
-           DAN queue'   = queue GABUNGAN Published(Out(r.events, o, r.row.v), crash)
+           DAN queue'   = queue GABUNG Published(Out(r.events, o, r.row.v), crash)
            DAN crashes' = JIKA crash MAKA crashes + 1 SELAINNYA crashes
     DAN <<stock, reservation, working, payment, saga, view, emails, sending, inbox>> TETAP
 
@@ -204,7 +204,7 @@ Ordering(m, crash) ==
 InventoryLoad(m) ==
     DAN m DALAM queue DAN m.to = "inventory" DAN Fresh(m)
     DAN m TIDAK DALAM {w.msg UNTUK w DALAM working}
-    DAN working' = working GABUNGAN {[msg BERNILAI m, seen BERNILAI stock]}
+    DAN working' = working GABUNG {[msg BERNILAI m, seen BERNILAI stock]}
     DAN <<order, stock, reservation, payment, saga, view, emails, sending>> TETAP
     DAN <<queue, inbox, crashes>> TETAP
 
@@ -249,7 +249,7 @@ Saga(m, crash) ==
 PaymentTimeout(o, crash) ==
     DAN saga[o] = "charging" DAN MayCrash(crash)
     DAN saga'    = [saga KECUALI saga[o] = "cancelled"]
-    DAN queue'   = queue GABUNGAN Published(Out({"ReleaseStock", "CancelOrder"}, o, 0), crash)
+    DAN queue'   = queue GABUNG Published(Out({"ReleaseStock", "CancelOrder"}, o, 0), crash)
     DAN crashes' = JIKA crash MAKA crashes + 1 SELAINNYA crashes
     DAN <<order, stock, reservation, working, payment, view, emails, sending, inbox>> TETAP
 
@@ -267,7 +267,7 @@ NotifySend(m) ==
     DAN m DALAM queue DAN m.to = "notifier" DAN Fresh(m) DAN m TIDAK DALAM sending
     DAN emails'  = [emails KECUALI emails[m.order] =
                        JIKA "email_key" DALAM Fixes MAKA 1 SELAINNYA SEKARANG + 1]
-    DAN sending' = sending GABUNGAN {m}
+    DAN sending' = sending GABUNG {m}
     DAN <<order, stock, reservation, working, payment, saga, view>> TETAP
     DAN <<queue, inbox, crashes>> TETAP
 
@@ -304,7 +304,7 @@ Work(m) ==
     ATAU ADA ok DALAM BOOLEAN SEHINGGA Payment(m, ok, SALAH)
 
 \* Messages some worker can act on now.
-Busy == queue GABUNGAN sending GABUNGAN {w.msg UNTUK w DALAM working}
+Busy == queue GABUNG sending GABUNG {w.msg UNTUK w DALAM working}
 
 \* The workers keep working: while some message can be handled, some
 \* message is. Crashes, customers and timers get no fairness: they may

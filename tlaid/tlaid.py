@@ -35,7 +35,7 @@ SPEC_KW = {
     "BERLAKU": ":", "SEHINGGA": ":", "UNTUK": ":",
     "BERNILAI": None, "GABUNG_FUNGSI": "@@", "KE": "->", "STUTTERING": None, "BERUBAH": None,
     "TERHADAP": None, "ADIL_LEMAH": "WF", "ADIL_KUAT": "SF", "SEKARANG": "@",
-    "DALAM": "\\in", "GABUNGAN": "\\cup", "IRISAN": "\\cap", "SELISIH": "\\",
+    "DALAM": "\\in", "GABUNG": "\\cup", "IRISAN": "\\cap", "SELISIH": "\\",
     "SUBHIMPUNAN": "SUBSET", "GABUNGAN_SEMUA": "UNION", "KARTESIUS": "\\X",
     "KECUALI": "EXCEPT",
     "JIKA": "IF", "MAKA": None, "SELAINNYA": "ELSE",
@@ -46,7 +46,7 @@ SPEC_KW = {
 }
 # words an earlier TLA-ID used, and what replaced them
 OLD_KW = {"KASUS": "KONDISI", "LAMA": "SEKARANG", "SERTA": "GABUNG_FUNGSI", "HIMPUNAN_KUASA": "SUBHIMPUNAN",
-          "SILANG": "KARTESIUS", "SEBALIKNYA": "SELAINNYA", "MUNGKIN": "IZINKAN"}
+          "SILANG": "KARTESIUS", "SEBALIKNYA": "SELAINNYA", "MUNGKIN": "IZINKAN", "GABUNGAN": "GABUNG"}
 PHRASES = {("TIDAK", "DALAM"): "\\notin", ("BAGIAN", "DARI"): "\\subseteq", ("UNTUK", "SEMUA"): "\\A"}
 FAIR = {"ADIL_LEMAH_": "WF_", "ADIL_KUAT_": "SF_"}
 BULLETS_ID = {"DAN", "ATAU"}
@@ -74,7 +74,7 @@ REV_SYM = {
     "/\\": "DAN", "\\land": "DAN", "\\/": "ATAU", "\\lor": "ATAU", "~": "TIDAK", "\\lnot": "TIDAK",
     "\\neg": "TIDAK", "=>": "BERARTI", "<=>": "SETARA", "\\equiv": "SETARA", "\\A": "SEMUA",
     "\\E": "ADA", "\\in": "DALAM", "\\notin": "TIDAK DALAM", "\\subseteq": "BAGIAN DARI",
-    "\\cup": "GABUNGAN", "\\union": "GABUNGAN", "\\cap": "IRISAN", "\\intersect": "IRISAN",
+    "\\cup": "GABUNG", "\\union": "GABUNG", "\\cap": "IRISAN", "\\intersect": "IRISAN",
     "\\": "SELISIH", "\\X": "KARTESIUS", "\\times": "KARTESIUS", "[]": "SELALU", "<>": "AKHIRNYA",
     "~>": "MENUJU", "\\div": "BAGI", "\\o": "SAMBUNG", "\\circ": "SAMBUNG",
 }
@@ -1168,7 +1168,10 @@ class Repl:
             tla = repl_expr_to_tla(expr)
         except TlaidError as e:
             return "Kesalahan TLA-ID: " + str(e).split(": ", 1)[-1]
-        self.p.stdin.write(tla + "\n"); self.p.stdin.flush()
+        try:
+            self.p.stdin.write(tla + "\n"); self.p.stdin.flush()
+        except BrokenPipeError:
+            sys.exit("Kesalahan: REPL TLC berhenti. tlc2.REPL butuh tla2tools.jar v1.8.0 atau lebih baru.")
         return repl_translate(self._until_prompt().strip("\n"), expr)
 
 def run_repl(path=None):
