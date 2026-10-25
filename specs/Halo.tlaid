@@ -1,0 +1,12 @@
+---- MODUL Halo ----
+MENGGUNAKAN HimpunanBilanganAsli
+
+VARIABEL x
+
+Init == x = 0
+Next == x < 3 DAN x' = x + 1
+
+Spec == Init DAN SELALU [Next] ATAU STUTTERING x
+
+TypeOK == x DALAM 0..3
+====
