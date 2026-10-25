@@ -2,11 +2,13 @@
 """TLA-ID prototype.
 
   tlaid.py tla   FILE.tlaid|FILE.cfgid [OUTDIR]   Indonesian -> TLA+ (column preserving)
+  tlaid.py tla   -e "EXPR"                        one TLA-ID expression -> TLA+
   tlaid.py impor FILE.tla|FILE.cfg     [OUTDIR]   TLA+ -> Indonesian (re-lays out columns)
   tlaid.py cek   Spec.tlaid [TLC args...]         transpile the folder, run TLC, translate output
   tlaid.py urai  Spec.tlaid                       transpile the folder, run SANY, translate output
   tlaid.py repl  [FILE]                           TLA-ID REPL (reads FILE instead of the keyboard if given)
   tlaid.py baru  Folder/Nama                      start a new spec: Nama.tlaid + Nama.cfgid
+  tlaid.py kamus                                  table of TLA-ID and TLA+ side by side
 """
 import json, os, re, shutil, subprocess, sys
 
@@ -1065,8 +1067,48 @@ def repl_expr_to_tla(expr):
     tla, _ = to_tla(expr, "repl")
     out = []
     for toks in lex([tla]):
-        out.append("".join(WRAPPER_NAMES.get(t[1], t[1]) if t[0] == "word" else t[1] for t in toks))
+        # one space per gap, none after a subscript's _ ([A]_v, WF_v)
+        out.append("".join(WRAPPER_NAMES.get(t[1], t[1]) if t[0] == "word"
+                           else ("" if k and toks[k - 1][1].endswith("_") else " ") if t[0] == "ws" else t[1]
+                           for k, t in enumerate(toks)))
     return out[0].strip()
+
+# constructs whose TLA+ depends on context; kamus shows each one translated
+KAMUS_CONTOH = [
+    "JIKA p MAKA a SELAINNYA b",
+    'KONDISI x = 1 HASILNYA "a" ATAU LAINNYA HASILNYA "b"',
+    "MISALKAN y == x + 1 HASILNYA y * 2",
+    "SEMUA x DALAM S BERLAKU x > 0",
+    "ADA x DALAM S SEHINGGA x > 0",
+    "PILIH x DALAM S SEHINGGA x > 0",
+    "{x DALAM S SEHINGGA x > 0}",
+    "{x * 2 UNTUK x DALAM S}",
+    "[S KE T]",
+    '[nama BERNILAI "a", umur BERNILAI 3]',
+    '1 BERNILAI "a"',
+    "[f KECUALI f[1] = SEKARANG + 1, f[2] = 0]",
+    "x TETAP",
+    "SELALU [Next] ATAU STUTTERING vars",
+    "AKHIRNYA Next DAN TIDAK STUTTERING vars",
+    "ADIL_LEMAH TERHADAP vars (Next)",
+    "ADIL_KUAT TERHADAP vars (Next)",
+]
+
+def print_kamus():
+    """TLA-ID and TLA+ side by side: keywords, constructs, config words, standard-module names."""
+    sections = [
+        ("Kata kunci", [(k, v) for k, v in SPEC_KW.items() if v and v != ":"]
+                       + [(" ".join(k), v) for k, v in PHRASES.items()]),
+        ("Bentuk", [(e, repl_expr_to_tla(e)) for e in KAMUS_CONTOH]),
+        ("Konfigurasi (.cfgid)", list(CFG_KW.items()) + list(CFG_VALUES.items())),
+        ("Modul standar", [(idn, en) for en, (idn, _) in STD.items()]
+                          + list(dict((idn, en) for _, (_, ops) in STD.items() for en, idn in ops.items()).items())),
+    ]
+    for title, rows in sections:
+        w = max(len(a) for a, _ in rows)
+        print(f"\n{title}\n  {'TLA-ID':<{w}}  TLA+\n  {'-' * w}  {'-' * 4}")
+        for a, b in rows:
+            print(f"  {a:<{w}}  {b}")
 
 REPL_PHRASES = [
     ("tlc2.tool.EvalException: ", ""),
@@ -1222,6 +1264,8 @@ def build_folder(folder, outdir, target=None):
     return shifts, srcs
 
 def main(argv):
+    if argv and argv[0] == "kamus":
+        print_kamus(); return 0
     if argv and argv[0] == "repl":
         run_repl(argv[1] if len(argv) > 1 else None); return 0
     if argv and argv[0] == "baru" and len(argv) > 1:
@@ -1236,6 +1280,12 @@ def main(argv):
     if len(argv) < 2:
         print(__doc__); return 2
     cmd, path = argv[0], argv[1]
+    if cmd == "tla" and path == "-e" and len(argv) > 2:
+        try:
+            print(repl_expr_to_tla(" ".join(argv[2:])))
+        except TlaidError as e:
+            print("Kesalahan TLA-ID:", str(e).split(": ", 1)[-1]); return 1
+        return 0
     if cmd == "tla":
         src = open(path).read()
         if path.endswith(".cfgid"):

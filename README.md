@@ -74,6 +74,8 @@ make impor SPEC=Counter  # convert specs/Counter.tla/.cfg to TLA-ID
 | `make cek SPEC=X` | Transpile `specs/*.tlaid` into `specs/.tlaid-out/`, model-check `X` with TLC, translate the report |
 | `make urai SPEC=X` | The same, but only parse with SANY |
 | `make repl-id` | TLA-ID REPL: `SEMUA x DALAM 1..3 BERLAKU x > 0` answers `BENAR` |
+| `make terjemah E='...'` | Translate one TLA-ID expression to TLA+: `make terjemah E='{1} GABUNG {2}'` prints `{1} \cup {2}` |
+| `make kamus` | Table of TLA-ID keywords and constructs next to their TLA+ |
 | `make baru SPEC=X` | Scaffold a new TLA-ID module and config |
 | `make impor SPEC=X` | Write `specs/X.tlaid` and `specs/X.cfgid` from an existing English spec |
 
